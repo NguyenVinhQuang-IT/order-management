@@ -113,7 +113,7 @@ export function updateOrder(originalCode, originalType, patch) {
     return { orders: current, error: "Nhập mã đơn." };
   }
   if (!ORDER_TYPES.some((item) => item.id === type)) {
-    return { orders: current, error: "Chọn loại đơn." };
+    return { orders: current, error: "Chọn công đoạn." };
   }
 
   const key = orderKey(code, type);
@@ -122,7 +122,7 @@ export function updateOrder(originalCode, originalType, patch) {
       itemIndex !== index && orderKey(order.code, order.type) === key,
   );
   if (duplicate) {
-    return { orders: current, error: "Mã đơn này đã có với cùng loại." };
+    return { orders: current, error: "Mã đơn này đã có với cùng công đoạn." };
   }
 
   const next = current.map((order, itemIndex) =>

@@ -127,8 +127,8 @@ export default function Dashboard() {
     const { valid } = parseOrderLines(text);
 
     if (!orderType) {
-      setFormError("Chọn loại đơn.");
-      notify("Chọn loại đơn.", "error");
+      setFormError("Chọn công đoạn.");
+      notify("Chọn công đoạn.", "error");
       return;
     }
 
@@ -284,7 +284,7 @@ export default function Dashboard() {
         >
           <label className="mb-6 flex flex-col gap-2">
             <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
-              Loại đơn
+              Công đoạn
             </span>
             <select
               className="h-11 w-full appearance-none rounded-full border border-black/8 bg-canvas bg-[length:12px_8px] bg-[position:right_20px_center] bg-no-repeat px-5 pr-12 text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink outline-none focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]"
@@ -296,7 +296,7 @@ export default function Dashboard() {
                 if (formError) setFormError("");
               }}
             >
-              <option value="">Chọn loại đơn</option>
+              <option value="">Chọn công đoạn</option>
               {ORDER_TYPES.map((type) => (
                 <option key={type.id} value={type.id}>
                   {type.label}
@@ -398,7 +398,7 @@ export default function Dashboard() {
             <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0 select-none">
               <li className="hidden border-b border-hairline px-6 py-3 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink-muted-48 desk:grid desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,1.1fr)_auto] desk:gap-4">
                 <span>Mã đơn</span>
-                <span>Loại đơn</span>
+                <span>Công đoạn</span>
                 <span>Mã nhân viên</span>
                 <span>Thời gian</span>
                 <span>Ghi chú</span>
@@ -445,9 +445,9 @@ export default function Dashboard() {
                           setEditType(event.target.value);
                           if (editError) setEditError("");
                         }}
-                        aria-label="Loại đơn"
+                        aria-label="Công đoạn"
                       >
-                        <option value="">Chọn loại đơn</option>
+                        <option value="">Chọn công đoạn</option>
                         {ORDER_TYPES.map((type) => (
                           <option key={type.id} value={type.id}>
                             {type.label}
