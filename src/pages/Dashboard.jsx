@@ -272,10 +272,10 @@ export default function Dashboard() {
       <main className="mx-auto max-w-[1200px] px-6 py-12 tablet:px-8 tablet:py-20">
 
         <h1 className="m-0 font-sans text-[34px] font-semibold leading-[1.1] tracking-[-0.01em] text-ink desk:text-[40px]">
-          Nhập đơn hàng.
+          Nhập mã CO
         </h1>
         <p className="mt-4 max-w-[28ch] font-sans text-[21px] font-normal leading-[1.19] tracking-[0.196px] text-ink-muted-80 desk:text-[28px] desk:leading-[1.14]">
-          Mỗi dòng một mã CO.
+          Mỗi dòng một mã CO
         </p>
 
         <form
