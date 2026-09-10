@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useSetAtom } from "jotai";
 import { useNavigate } from "react-router-dom";
-import BoxStill from "../components/BoxStill";
+import DinoGame from "../components/DinoGame";
 import GlobalNav from "../components/GlobalNav";
 import { useToast } from "../components/Toast";
-import { DEMO, homePathForRole, ROLES, signInAtom } from "../auth";
+import { ACCOUNTS, homePathForRole, ROLES, signInAtom } from "../auth";
 
 const EMPLOYEE_ID_PATTERN = /^\d{1,20}$/;
 
@@ -90,7 +90,7 @@ export default function Login() {
               Một nơi cho mọi đơn hàng.
             </p>
           </div>
-          <BoxStill />
+          <DinoGame />
         </section>
 
         <section className="flex items-start justify-center bg-parchment px-6 pb-16 pt-12 tablet:items-center tablet:px-8 tablet:py-20">
@@ -252,9 +252,18 @@ export default function Login() {
               {submitting ? "Đang đăng nhập…" : "Đăng nhập"}
             </button>
 
-            <p className="mt-2 text-center text-[12px] font-normal leading-[1.3] tracking-[-0.12px] text-ink-muted-48">
-              Tài khoản demo: {DEMO.employeeId} / {DEMO.password}
-            </p>
+            <div className="mt-2 text-center text-[12px] font-normal leading-[1.3] tracking-[-0.12px] text-ink-muted-48">
+              {ACCOUNTS.map((account) => {
+                const roleLabel =
+                  ROLES.find((item) => item.id === account.role)?.label ??
+                  account.role;
+                return (
+                  <p key={account.employeeId} className="m-0">
+                    {roleLabel}: {account.employeeId} / {account.password}
+                  </p>
+                );
+              })}
+            </div>
           </form>
         </section>
       </main>

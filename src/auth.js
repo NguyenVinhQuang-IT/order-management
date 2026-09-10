@@ -4,11 +4,20 @@ import { sessionJsonStorage } from "./storage";
 
 const STORAGE_KEY = "om_session";
 
-const DEMO = {
-  employeeId: "001",
-  password: "123456",
-  name: "Quang",
-};
+const ACCOUNTS = [
+  {
+    employeeId: "001",
+    password: "123456",
+    name: "Quang",
+    role: "employee",
+  },
+  {
+    employeeId: "100",
+    password: "123456",
+    name: "Minh",
+    role: "manager",
+  },
+];
 
 export const ROLES = [
   { id: "employee", label: "Nhân viên" },
@@ -46,17 +55,24 @@ export const signInAtom = atom(
           return;
         }
         const normalized = employeeId.trim();
-        if (normalized === DEMO.employeeId && password === DEMO.password) {
-          const session = {
-            employeeId: DEMO.employeeId,
-            name: DEMO.name,
-            role,
-          };
-          set(sessionAtom, session);
-          resolve(session);
+        const account = ACCOUNTS.find(
+          (item) => item.employeeId === normalized && item.password === password,
+        );
+        if (!account) {
+          reject(new Error("Mã nhân viên hoặc mật khẩu không đúng."));
           return;
         }
-        reject(new Error("Mã nhân viên hoặc mật khẩu không đúng."));
+        if (account.role !== role) {
+          reject(new Error("Tài khoản không khớp với vai trò đã chọn."));
+          return;
+        }
+        const session = {
+          employeeId: account.employeeId,
+          name: account.name,
+          role: account.role,
+        };
+        set(sessionAtom, session);
+        resolve(session);
       }, 720);
     });
   },
@@ -66,4 +82,4 @@ export const signOutAtom = atom(null, (_get, set) => {
   set(sessionAtom, RESET);
 });
 
-export { DEMO };
+export { ACCOUNTS };
