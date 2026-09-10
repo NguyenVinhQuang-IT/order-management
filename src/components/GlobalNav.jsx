@@ -1,0 +1,41 @@
+import { Link } from "react-router-dom";
+import { isAuthenticated } from "../auth";
+
+export const navLinkClass =
+  "cursor-pointer border-0 bg-transparent p-0 text-[12px] font-normal leading-none tracking-[-0.12px] text-white hover:text-body-muted focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus";
+
+function Mark() {
+  return (
+    <svg
+      className="block text-parchment"
+      viewBox="0 0 18 18"
+      width="18"
+      height="18"
+      aria-hidden="true"
+    >
+      <path
+        fill="currentColor"
+        d="M3.2 6.2 9 3.1l5.8 3.1v9.2H3.2V6.2Zm1.6 1.1v6.9h8.4V7.3L9 5.1 4.8 7.3Z"
+      />
+    </svg>
+  );
+}
+
+export default function GlobalNav({ trailing }) {
+  return (
+    <header className="sticky top-0 z-20 h-11 bg-black text-white">
+      <div className="mx-auto flex h-full max-w-[1440px] items-center justify-between px-[22px]">
+        <Link
+          to={isAuthenticated() ? "/" : "/login"}
+          className="inline-flex cursor-pointer items-center gap-2 text-[12px] font-normal leading-none tracking-[-0.12px] text-white hover:text-body-muted focus-visible:outline-offset-[3px]"
+          aria-label="Trang chủ"
+          title="Trang chủ"
+        >
+          <Mark />
+          <span>Trang chủ</span>
+        </Link>
+        {trailing ? <div className="flex items-center gap-5">{trailing}</div> : null}
+      </div>
+    </header>
+  );
+}
