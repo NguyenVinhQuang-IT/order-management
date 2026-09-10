@@ -1,20 +1,38 @@
+import { useAtomValue } from "jotai";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { isAuthenticated } from "./auth";
-import { ToastProvider } from "./components/Toast";
+import { homePathForRole, isAuthenticatedAtom, sessionAtom } from "./auth";
+import Toast from "./components/Toast";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
+import Stats from "./pages/Stats";
 
 function PrivateRoute({ children }) {
-  return isAuthenticated() ? children : <Navigate to="/login" replace />;
+  const authenticated = useAtomValue(isAuthenticatedAtom);
+  return authenticated ? children : <Navigate to="/login" replace />;
 }
 
 function GuestRoute({ children }) {
-  return isAuthenticated() ? <Navigate to="/" replace /> : children;
+  const session = useAtomValue(sessionAtom);
+  if (!session) return children;
+  return <Navigate to={homePathForRole(session.role)} replace />;
+}
+
+function ManagerRoute({ children }) {
+  const session = useAtomValue(sessionAtom);
+  if (!session) return <Navigate to="/login" replace />;
+  if (session.role !== "manager") return <Navigate to="/" replace />;
+  return children;
+}
+
+function HomeRedirect() {
+  const session = useAtomValue(sessionAtom);
+  if (!session) return <Navigate to="/login" replace />;
+  return <Navigate to={homePathForRole(session.role)} replace />;
 }
 
 export default function App() {
   return (
-    <ToastProvider>
+    <>
       <Routes>
         <Route
           path="/login"
@@ -32,8 +50,17 @@ export default function App() {
             </PrivateRoute>
           }
         />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route
+          path="/thong-ke"
+          element={
+            <ManagerRoute>
+              <Stats />
+            </ManagerRoute>
+          }
+        />
+        <Route path="*" element={<HomeRedirect />} />
       </Routes>
-    </ToastProvider>
+      <Toast />
+    </>
   );
 }

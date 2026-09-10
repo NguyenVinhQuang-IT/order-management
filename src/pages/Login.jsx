@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { useSetAtom } from "jotai";
 import { useNavigate } from "react-router-dom";
 import BoxStill from "../components/BoxStill";
 import GlobalNav from "../components/GlobalNav";
 import { useToast } from "../components/Toast";
-import { DEMO, signIn } from "../auth";
+import { DEMO, homePathForRole, ROLES, signInAtom } from "../auth";
 
 const EMPLOYEE_ID_PATTERN = /^\d{1,20}$/;
 
@@ -19,6 +20,8 @@ function fieldInputClass(invalid) {
 export default function Login() {
   const navigate = useNavigate();
   const notify = useToast();
+  const signIn = useSetAtom(signInAtom);
+  const [role, setRole] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -28,6 +31,9 @@ export default function Login() {
 
   function validate() {
     const next = {};
+    if (!ROLES.some((item) => item.id === role)) {
+      next.role = "Chọn vai trò.";
+    }
     const trimmed = employeeId.trim();
     if (!trimmed) {
       next.employeeId = "Nhập mã nhân viên.";
@@ -53,9 +59,9 @@ export default function Login() {
     setSubmitting(true);
     setFormError("");
     try {
-      await signIn(employeeId, password);
+      await signIn(employeeId, password, role);
       notify("Đăng nhập thành công.");
-      navigate("/", { replace: true });
+      navigate(homePathForRole(role), { replace: true });
     } catch (error) {
       setFormError(error.message);
       notify(error.message, "error");
@@ -98,8 +104,59 @@ export default function Login() {
                 Đăng nhập
               </h2>
               <p className="mt-3 text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink-muted-80">
-                Dùng mã nhân viên để tiếp tục.
+                Chọn vai trò rồi dùng mã nhân viên để tiếp tục.
               </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+                Vai trò
+              </span>
+              <div
+                className={`grid h-11 grid-cols-2 gap-1 rounded-full border p-1 ${
+                  fieldErrors.role ? "border-ink bg-canvas" : "border-black/8 bg-canvas"
+                }`}
+                role="radiogroup"
+                aria-label="Vai trò"
+                aria-invalid={Boolean(fieldErrors.role)}
+                aria-describedby={fieldErrors.role ? "role-error" : undefined}
+              >
+                {ROLES.map((item) => {
+                  const selected = role === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      className={`h-full cursor-pointer rounded-full border-0 text-[15px] font-normal leading-none tracking-[-0.224px] ${
+                        selected
+                          ? "bg-ink text-white"
+                          : "bg-transparent text-ink-muted-80 hover:text-ink"
+                      }`}
+                      onClick={() => {
+                        setRole(item.id);
+                        if (fieldErrors.role) {
+                          setFieldErrors((current) => ({
+                            ...current,
+                            role: undefined,
+                          }));
+                        }
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {fieldErrors.role ? (
+                <span
+                  className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-warn"
+                  id="role-error"
+                >
+                  {fieldErrors.role}
+                </span>
+              ) : null}
             </div>
 
             <label className="flex flex-col gap-2">
