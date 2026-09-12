@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useSetAtom } from "jotai";
 import { useNavigate } from "react-router-dom";
-import DinoGame from "../components/DinoGame";
 import GlobalNav from "../components/GlobalNav";
 import { useToast } from "../components/Toast";
 import { ACCOUNTS, homePathForRole, ROLES, signInAtom } from "../auth";
@@ -76,10 +75,22 @@ export default function Login() {
 
       <main className="grid min-h-[calc(100vh-44px)] grid-cols-1 tablet:grid-cols-2">
         <section
-          className="flex flex-col justify-between gap-8 bg-tile px-6 pb-8 pt-12 text-white tablet:gap-0 tablet:px-10 tablet:pb-10 tablet:pt-16 desk:px-16 desk:pb-12 desk:pt-20"
+          className="flex flex-col justify-center bg-tile px-6 py-12 text-white tablet:px-10 tablet:py-16 desk:px-16 desk:py-20"
           aria-label="Giới thiệu"
         >
           <div>
+            <svg
+              className="mb-8 block text-parchment"
+              viewBox="0 0 18 18"
+              width="72"
+              height="72"
+              aria-hidden="true"
+            >
+              <path
+                fill="currentColor"
+                d="M3.2 6.2 9 3.1l5.8 3.1v9.2H3.2V6.2Zm1.6 1.1v6.9h8.4V7.3L9 5.1 4.8 7.3Z"
+              />
+            </svg>
             <p className="mb-3 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px]">
               Order
             </p>
@@ -90,7 +101,6 @@ export default function Login() {
               Một nơi cho mọi đơn hàng.
             </p>
           </div>
-          <DinoGame />
         </section>
 
         <section className="flex items-start justify-center bg-parchment px-6 pb-16 pt-12 tablet:items-center tablet:px-8 tablet:py-20">
