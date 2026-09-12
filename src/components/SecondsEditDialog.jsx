@@ -35,14 +35,16 @@ function sameOrder(left, right) {
   );
 }
 
-export default function SecondsEditDialog({ open, onClose }) {
+export default function SecondsEditDialog({ open, onClose, order = null }) {
   const notify = useToast();
   const orders = useAtomValue(ordersAtom);
   const typeSeconds = useAtomValue(typeSecondsAtom);
   const saveSeconds = useSetAtom(updateOrderSecondsAtom);
   const searchRef = useRef(null);
+  const secondsRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const isEdit = Boolean(order);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
   const [value, setValue] = useState("");
@@ -57,8 +59,24 @@ export default function SecondsEditDialog({ open, onClose }) {
       return undefined;
     }
 
+    if (order) {
+      setSelected(order);
+      setQuery(order.code);
+      setValue(order.seconds == null ? "" : String(order.seconds));
+    } else {
+      setSelected(null);
+      setQuery("");
+      setValue("");
+    }
+    setFormError("");
+
     const frame = window.requestAnimationFrame(() => {
-      searchRef.current?.focus();
+      if (order) {
+        secondsRef.current?.focus();
+        secondsRef.current?.select();
+      } else {
+        searchRef.current?.focus();
+      }
     });
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -73,7 +91,7 @@ export default function SecondsEditDialog({ open, onClose }) {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKey);
     };
-  }, [open]);
+  }, [open, order]);
 
   const matches = useMemo(() => {
     return filterOrdersByQuery(orders, query);
@@ -137,6 +155,11 @@ export default function SecondsEditDialog({ open, onClose }) {
       notify(parsed.error, "error");
       return;
     }
+    if (parsed.value == null) {
+      setFormError("Nhập số giây.");
+      notify("Nhập số giây.", "error");
+      return;
+    }
 
     const result = saveSeconds(order.code, order.type, parsed.value);
     if (result.error) {
@@ -168,7 +191,7 @@ export default function SecondsEditDialog({ open, onClose }) {
             id="seconds-dialog-title"
             className="m-0 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
           >
-            Thiết lập số giây
+            {isEdit ? "Sửa số giây" : "Thêm mới"}
           </h2>
           <button className={ghostButtonClass} type="button" onClick={onClose}>
             Đóng
@@ -176,6 +199,20 @@ export default function SecondsEditDialog({ open, onClose }) {
         </div>
 
         <form onSubmit={handleSubmit}>
+          {isEdit ? (
+            <label className="mb-6 flex flex-col gap-2">
+              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+                Mã đơn
+              </span>
+              <input
+                className={`${textFieldClass} bg-parchment tabular-nums`}
+                type="text"
+                value={order.code}
+                readOnly
+                aria-readonly="true"
+              />
+            </label>
+          ) : (
           <div className="mb-6 flex flex-col gap-2">
             <label className="flex flex-col gap-2">
               <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
@@ -259,6 +296,7 @@ export default function SecondsEditDialog({ open, onClose }) {
               </ul>
             ) : null}
           </div>
+          )}
 
           {selected ? (
             <label className="mb-6 flex flex-col gap-2">
@@ -280,6 +318,7 @@ export default function SecondsEditDialog({ open, onClose }) {
               Số giây
             </span>
             <input
+              ref={secondsRef}
               className={`${textFieldClass} tabular-nums`}
               name="seconds"
               type="text"
