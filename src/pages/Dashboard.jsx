@@ -14,11 +14,6 @@ import {
   removeOrderAtom,
   removeOrdersByKeysAtom,
 } from "../orders";
-import {
-  formatSeconds,
-  getOrderSeconds,
-  typeSecondsAtom,
-} from "../settings";
 
 const primaryButtonClass =
   "h-11 cursor-pointer rounded-full border-0 bg-primary px-[22px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-white hover:bg-primary-focus focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus active:scale-95 disabled:cursor-default disabled:opacity-[0.64]";
@@ -27,7 +22,7 @@ const textLinkClass =
   "cursor-pointer border-0 bg-transparent p-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-primary";
 
 const orderListCols =
-  "desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.55fr)_minmax(0,1fr)_auto]";
+  "desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,1fr)_auto]";
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -40,21 +35,11 @@ function formatEnteredAt(iso) {
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-function CellValue({ label, value }) {
-  return (
-    <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
-      <span className="desk:hidden">{label} </span>
-      {value}
-    </span>
-  );
-}
-
 export default function Dashboard() {
   const notify = useToast();
   const orders = useAtomValue(ordersAtom);
   const visibleOrders = useAtomValue(filteredOrdersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
-  const typeSeconds = useAtomValue(typeSecondsAtom);
   const removeOrder = useSetAtom(removeOrderAtom);
   const removeOrdersByKeys = useSetAtom(removeOrdersByKeysAtom);
   const clearOrders = useSetAtom(clearOrdersAtom);
@@ -279,8 +264,6 @@ export default function Dashboard() {
                 <span>Công đoạn</span>
                 <span>Mã nhân viên</span>
                 <span>Thời gian</span>
-                <span>Số giây</span>
-                <span>Tổng CO</span>
                 <span>Ghi chú</span>
                 <span>Thao tác</span>
               </li>
@@ -311,11 +294,6 @@ export default function Dashboard() {
                     <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
                       {formatEnteredAt(order.updatedAt || order.createdAt)}
                     </span>
-                    <CellValue
-                      label="Số giây"
-                      value={formatSeconds(getOrderSeconds(order, typeSeconds))}
-                    />
-                    <CellValue label="Tổng CO" value="—" />
                     <span className="col-start-1 break-words text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
                       {order.note ? (
                         order.note

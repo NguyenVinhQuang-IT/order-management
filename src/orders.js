@@ -324,6 +324,32 @@ export function updateOrderSeconds(current, code, type, seconds) {
   return { orders: next, error: "" };
 }
 
+export function updateOrdersSeconds(current, keys, seconds) {
+  const keySet = keys instanceof Set ? keys : new Set(keys);
+  if (keySet.size === 0) {
+    return { orders: current, error: "Chọn ít nhất một mã đơn." };
+  }
+  if (seconds != null && (typeof seconds !== "number" || !Number.isFinite(seconds))) {
+    return { orders: current, error: "Nhập số giây hợp lệ." };
+  }
+
+  let found = 0;
+  const next = current.map((order) => {
+    if (!keySet.has(orderKey(order.code, order.type))) return order;
+    found += 1;
+    if (seconds == null) {
+      if (!("seconds" in order)) return order;
+      const { seconds: _ignored, ...rest } = order;
+      return rest;
+    }
+    return { ...order, seconds };
+  });
+  if (found === 0) {
+    return { orders: current, error: "Không tìm thấy đơn hàng." };
+  }
+  return { orders: next, error: "" };
+}
+
 export const ordersAtom = atomWithStorage(STORAGE_KEY, [], sessionJsonStorage, {
   getOnInit: true,
 });
@@ -398,6 +424,14 @@ export const updateOrderSecondsAtom = atom(
     return result;
   },
 );
+
+export const updateOrdersSecondsAtom = atom(null, (get, set, keys, seconds) => {
+  const result = updateOrdersSeconds(get(ordersAtom), keys, seconds);
+  if (!result.error) {
+    set(ordersAtom, result.orders);
+  }
+  return result;
+});
 
 export const clearOrdersAtom = atom(null, (_get, set) => {
   set(ordersAtom, []);

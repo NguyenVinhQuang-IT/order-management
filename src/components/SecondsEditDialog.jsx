@@ -3,19 +3,22 @@ import { useAtomValue, useSetAtom } from "jotai";
 import {
   filterOrdersByQuery,
   getOrderTypeLabel,
-  normalizeOrderCode,
+  ORDER_TYPES,
   orderKey,
   ordersAtom,
   updateOrderSecondsAtom,
+  updateOrdersSecondsAtom,
 } from "../orders";
 import {
-  getOrderSeconds,
   parseSecondsInput,
-  typeSecondsAtom,
+  saveOneTypeSecondsAtom,
 } from "../settings";
 import { useToast } from "./Toast";
 
-const RESULT_LIMIT = 8;
+const SCOPES = [
+  { id: "all", label: "Tất cả mã đơn" },
+  { id: "selected", label: "Chọn từng mã" },
+];
 
 const primaryButtonClass =
   "h-11 cursor-pointer rounded-full border-0 bg-primary px-[22px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-white hover:bg-primary-focus focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus active:scale-95 disabled:cursor-default disabled:opacity-[0.64]";
@@ -23,59 +26,76 @@ const primaryButtonClass =
 const ghostButtonClass =
   "h-11 cursor-pointer rounded-full border-0 bg-transparent px-[18px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-primary hover:bg-black/4";
 
+const textLinkClass =
+  "cursor-pointer border-0 bg-transparent p-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-primary";
+
+const selectChevron =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%231d1d1f' d='M1.2 1.3 6 6.1l4.8-4.8'/%3E%3C/svg%3E\")";
+
+const selectClass =
+  "h-11 w-full appearance-none rounded-full border border-black/8 bg-canvas bg-[length:12px_8px] bg-[position:right_20px_center] bg-no-repeat px-5 pr-12 text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink outline-none focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]";
+
 const textFieldClass =
   "h-11 w-full rounded-full border border-black/8 bg-canvas px-5 text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink outline-none focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]";
 
-function sameOrder(left, right) {
-  return Boolean(
-    left &&
-      right &&
-      left.code === right.code &&
-      left.type === right.type,
-  );
-}
-
-export default function SecondsEditDialog({ open, onClose, order = null }) {
+export default function SecondsEditDialog({ open, onClose, entry = null }) {
   const notify = useToast();
   const orders = useAtomValue(ordersAtom);
-  const typeSeconds = useAtomValue(typeSecondsAtom);
-  const saveSeconds = useSetAtom(updateOrderSecondsAtom);
-  const searchRef = useRef(null);
+  const saveTypeSeconds = useSetAtom(saveOneTypeSecondsAtom);
+  const saveOrderSeconds = useSetAtom(updateOrderSecondsAtom);
+  const saveOrdersSeconds = useSetAtom(updateOrdersSecondsAtom);
+  const typeRef = useRef(null);
   const secondsRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const isEdit = Boolean(order);
+  const isEdit = Boolean(entry);
+  const [orderType, setOrderType] = useState("");
+  const [scope, setScope] = useState("all");
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(null);
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [value, setValue] = useState("");
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
     if (!open) {
+      setOrderType("");
+      setScope("all");
       setQuery("");
-      setSelected(null);
+      setSelectedKeys(new Set());
       setValue("");
       setFormError("");
       return undefined;
     }
 
-    if (order) {
-      setSelected(order);
-      setQuery(order.code);
-      setValue(order.seconds == null ? "" : String(order.seconds));
-    } else {
-      setSelected(null);
+    if (entry?.kind === "type") {
+      setOrderType(entry.type.id);
+      setScope("all");
       setQuery("");
+      setSelectedKeys(new Set());
+      setValue(entry.type.seconds == null ? "" : String(entry.type.seconds));
+    } else if (entry?.kind === "order") {
+      setOrderType(entry.order.type);
+      setScope("selected");
+      setQuery("");
+      setSelectedKeys(new Set([orderKey(entry.order.code, entry.order.type)]));
+      setValue(
+        entry.order.seconds == null ? "" : String(entry.order.seconds),
+      );
+    } else {
+      setOrderType("");
+      setScope("all");
+      setQuery("");
+      setSelectedKeys(new Set());
       setValue("");
     }
     setFormError("");
 
     const frame = window.requestAnimationFrame(() => {
-      if (order) {
+      if (entry) {
         secondsRef.current?.focus();
         secondsRef.current?.select();
       } else {
-        searchRef.current?.focus();
+        typeRef.current?.focus();
       }
     });
     const previousOverflow = document.body.style.overflow;
@@ -91,61 +111,48 @@ export default function SecondsEditDialog({ open, onClose, order = null }) {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKey);
     };
-  }, [open, order]);
+  }, [open, entry]);
 
-  const matches = useMemo(() => {
-    return filterOrdersByQuery(orders, query);
-  }, [orders, query]);
+  const typeOrders = useMemo(() => {
+    if (!orderType) return [];
+    return orders.filter((order) => order.type === orderType);
+  }, [orders, orderType]);
 
-  const visibleMatches = matches.slice(0, RESULT_LIMIT);
-
-  function selectOrder(order) {
-    setSelected(order);
-    setQuery(order.code);
-    const seconds = getOrderSeconds(order, typeSeconds);
-    setValue(seconds == null ? "" : String(seconds));
-    setFormError("");
-  }
-
-  function handleQueryChange(nextQuery) {
-    setQuery(nextQuery);
-    if (
-      selected &&
-      normalizeOrderCode(nextQuery) !== selected.code
-    ) {
-      setSelected(null);
-      setValue("");
-    }
-    if (formError) setFormError("");
-  }
-
-  function resolveOrder() {
-    if (selected) {
-      return (
-        orders.find(
-          (order) =>
-            order.code === selected.code && order.type === selected.type,
-        ) ?? selected
-      );
-    }
-    if (matches.length === 1) return matches[0];
-    const exactCode = normalizeOrderCode(query);
-    if (!exactCode) return null;
-    const exact = orders.filter((order) => order.code === exactCode);
-    return exact.length === 1 ? exact[0] : null;
-  }
+  const visibleOrders = useMemo(
+    () => filterOrdersByQuery(typeOrders, query),
+    [typeOrders, query],
+  );
 
   if (!open) return null;
 
+  function toggleKey(key) {
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+    if (formError) setFormError("");
+  }
+
+  function handleSelectVisible(selectAll) {
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      for (const order of visibleOrders) {
+        const key = orderKey(order.code, order.type);
+        if (selectAll) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
+    if (formError) setFormError("");
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
-    const order = resolveOrder();
-    if (!order) {
-      const message = query.trim()
-        ? "Chọn một mã CO đã nhập."
-        : "Tìm và chọn mã CO đã nhập.";
-      setFormError(message);
-      notify(message, "error");
+    if (!orderType) {
+      setFormError("Chọn công đoạn.");
+      notify("Chọn công đoạn.", "error");
       return;
     }
 
@@ -161,18 +168,68 @@ export default function SecondsEditDialog({ open, onClose, order = null }) {
       return;
     }
 
-    const result = saveSeconds(order.code, order.type, parsed.value);
+    if (scope === "all") {
+      const overrideKeys = typeOrders
+        .filter(
+          (order) =>
+            typeof order.seconds === "number" && Number.isFinite(order.seconds),
+        )
+        .map((order) => orderKey(order.code, order.type));
+      if (overrideKeys.length) {
+        const cleared = saveOrdersSeconds(overrideKeys, null);
+        if (cleared.error) {
+          setFormError(cleared.error);
+          notify(cleared.error, "error");
+          return;
+        }
+      }
+      const result = saveTypeSeconds(orderType, value);
+      if (result.error) {
+        setFormError(result.error);
+        notify(result.error, "error");
+        return;
+      }
+      const label =
+        ORDER_TYPES.find((item) => item.id === orderType)?.label ?? "công đoạn";
+      notify(`Đã lưu số giây cho tất cả mã của ${label}.`);
+      onClose();
+      return;
+    }
+
+    if (isEdit && entry?.kind === "order") {
+      const result = saveOrderSeconds(
+        entry.order.code,
+        entry.order.type,
+        parsed.value,
+      );
+      if (result.error) {
+        setFormError(result.error);
+        notify(result.error, "error");
+        return;
+      }
+      notify(`Đã lưu số giây cho ${entry.order.code}.`);
+      onClose();
+      return;
+    }
+
+    if (selectedKeys.size === 0) {
+      setFormError("Chọn ít nhất một mã đơn.");
+      notify("Chọn ít nhất một mã đơn.", "error");
+      return;
+    }
+
+    const result = saveOrdersSeconds(selectedKeys, parsed.value);
     if (result.error) {
       setFormError(result.error);
       notify(result.error, "error");
       return;
     }
-
-    notify(`Đã lưu số giây cho ${order.code}.`);
+    notify(`Đã lưu số giây cho ${selectedKeys.size} mã đơn.`);
     onClose();
   }
 
-  const showResults = !selected && orders.length > 0;
+  const typeLabel =
+    ORDER_TYPES.find((item) => item.id === orderType)?.label ?? "";
 
   return (
     <div
@@ -199,118 +256,173 @@ export default function SecondsEditDialog({ open, onClose, order = null }) {
         </div>
 
         <form onSubmit={handleSubmit}>
-          {isEdit ? (
-            <label className="mb-6 flex flex-col gap-2">
-              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
-                Mã đơn
-              </span>
-              <input
-                className={`${textFieldClass} bg-parchment tabular-nums`}
-                type="text"
-                value={order.code}
-                readOnly
-                aria-readonly="true"
-              />
-            </label>
-          ) : (
-          <div className="mb-6 flex flex-col gap-2">
-            <label className="flex flex-col gap-2">
-              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
-                Tìm CO đã nhập
-              </span>
-              <input
-                ref={searchRef}
-                className={`${textFieldClass} tabular-nums`}
-                type="search"
-                name="orderSearch"
-                value={query}
-                onChange={(event) => handleQueryChange(event.target.value)}
-                placeholder="Mã đơn, mã NV, công đoạn"
-                autoComplete="off"
-                spellCheck={false}
-                aria-describedby="order-search-help"
-                aria-controls="order-search-results"
-              />
-            </label>
-            <span
-              id="order-search-help"
-              className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48"
-            >
-              {orders.length === 0
-                ? "Chưa có đơn hàng. Nhập CO trước khi thiết lập số giây."
-                : selected
-                  ? `${selected.code} · ${getOrderTypeLabel(selected.type)}`
-                  : matches.length
-                    ? `${Math.min(matches.length, RESULT_LIMIT)}${
-                        matches.length > RESULT_LIMIT
-                          ? ` / ${matches.length}`
-                          : ""
-                      } mã CO.`
-                    : "Không có CO khớp."}
+          <label className="mb-6 flex flex-col gap-2">
+            <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+              Công đoạn
             </span>
-            {showResults ? (
-              <ul
-                id="order-search-results"
-                className="m-0 max-h-48 list-none overflow-y-auto rounded-[18px] border border-hairline p-0"
-                role="listbox"
-                aria-label="CO đã nhập"
-              >
-                {visibleMatches.length === 0 ? (
-                  <li className="px-5 py-3 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48">
-                    Không có CO khớp.
-                  </li>
-                ) : (
-                  visibleMatches.map((order, index) => {
-                    const key = orderKey(order.code, order.type);
-                    const active = sameOrder(selected, order);
-                    return (
-                      <li
-                        key={key}
-                        className={
-                          index < visibleMatches.length - 1
-                            ? "border-b border-hairline"
-                            : ""
-                        }
-                      >
-                        <button
-                          className={`flex w-full cursor-pointer flex-col items-start gap-1 border-0 bg-transparent px-5 py-3 text-left ${
-                            active ? "bg-[#e8f1fb]" : "hover:bg-parchment"
-                          }`}
-                          type="button"
-                          role="option"
-                          aria-selected={active}
-                          onClick={() => selectOrder(order)}
-                        >
-                          <span className="text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink tabular-nums">
-                            {order.code}
-                          </span>
-                          <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48">
-                            {getOrderTypeLabel(order.type)}
-                            {order.employeeId ? ` · NV ${order.employeeId}` : ""}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })
-                )}
-              </ul>
-            ) : null}
-          </div>
-          )}
-
-          {selected ? (
-            <label className="mb-6 flex flex-col gap-2">
-              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
-                Công đoạn
-              </span>
+            {isEdit ? (
               <input
                 className={`${textFieldClass} bg-parchment`}
                 type="text"
-                value={getOrderTypeLabel(selected.type)}
+                value={typeLabel}
                 readOnly
                 aria-readonly="true"
               />
-            </label>
+            ) : (
+              <select
+                ref={typeRef}
+                className={selectClass}
+                style={{ backgroundImage: selectChevron }}
+                name="orderType"
+                value={orderType}
+                onChange={(event) => {
+                  setOrderType(event.target.value);
+                  setSelectedKeys(new Set());
+                  setQuery("");
+                  if (formError) setFormError("");
+                }}
+                required
+                aria-required="true"
+              >
+                <option value="">Chọn công đoạn</option>
+                {ORDER_TYPES.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+
+          <div className="mb-6 flex flex-col gap-2">
+            <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+              Áp dụng
+            </span>
+            {isEdit ? (
+              <input
+                className={`${textFieldClass} bg-parchment`}
+                type="text"
+                value={
+                  scope === "all" ? "Tất cả mã đơn" : entry?.order?.code ?? ""
+                }
+                readOnly
+                aria-readonly="true"
+              />
+            ) : (
+              <div
+                className="grid h-11 grid-cols-2 gap-1 rounded-full border border-black/8 bg-canvas p-1"
+                role="radiogroup"
+                aria-label="Áp dụng"
+              >
+                {SCOPES.map((item) => {
+                  const selected = scope === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      className={`h-full cursor-pointer rounded-full border-0 text-[15px] font-normal leading-none tracking-[-0.224px] ${
+                        selected
+                          ? "bg-ink text-white"
+                          : "bg-transparent text-ink-muted-80 hover:text-ink"
+                      }`}
+                      onClick={() => {
+                        setScope(item.id);
+                        if (formError) setFormError("");
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {!isEdit && scope === "selected" && orderType ? (
+            <div className="mb-6 flex flex-col gap-2">
+              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+                Mã đơn
+              </span>
+              {typeOrders.length === 0 ? (
+                <p className="m-0 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48">
+                  Chưa có đơn ở công đoạn này.
+                </p>
+              ) : (
+                <>
+                  <input
+                    className={`${textFieldClass} tabular-nums`}
+                    type="search"
+                    name="orderSearch"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-label="Tìm mã đơn"
+                  />
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48">
+                      {selectedKeys.size} đã chọn
+                    </span>
+                    <div className="flex items-center gap-4">
+                      <button
+                        className={textLinkClass}
+                        type="button"
+                        onClick={() => handleSelectVisible(true)}
+                      >
+                        Chọn tất cả
+                      </button>
+                      <button
+                        className={textLinkClass}
+                        type="button"
+                        onClick={() => handleSelectVisible(false)}
+                      >
+                        Bỏ chọn
+                      </button>
+                    </div>
+                  </div>
+                  <ul className="m-0 max-h-48 list-none overflow-y-auto rounded-[18px] border border-hairline p-0">
+                    {visibleOrders.length === 0 ? (
+                      <li className="px-5 py-3 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48">
+                        Không có mã khớp.
+                      </li>
+                    ) : (
+                      visibleOrders.map((order, index) => {
+                        const key = orderKey(order.code, order.type);
+                        const checked = selectedKeys.has(key);
+                        return (
+                          <li
+                            key={key}
+                            className={
+                              index < visibleOrders.length - 1
+                                ? "border-b border-hairline"
+                                : ""
+                            }
+                          >
+                            <label
+                              className={`flex cursor-pointer items-center gap-3 px-5 py-3 ${
+                                checked ? "bg-[#e8f1fb]" : "hover:bg-parchment"
+                              }`}
+                            >
+                              <input
+                                className="h-4 w-4 shrink-0 accent-primary"
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleKey(key)}
+                              />
+                              <span className="text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink tabular-nums">
+                                {order.code}
+                              </span>
+                            </label>
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                </>
+              )}
+            </div>
           ) : null}
 
           <label className="flex flex-col gap-2">
@@ -331,15 +443,9 @@ export default function SecondsEditDialog({ open, onClose, order = null }) {
                 setValue(event.target.value.replace(/\D/g, "").slice(0, 5));
                 if (formError) setFormError("");
               }}
-              placeholder="Không bắt buộc"
-              aria-describedby="seconds-dialog-help"
+              required
+              aria-required="true"
             />
-            <span
-              id="seconds-dialog-help"
-              className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48"
-            >
-              Để trống nếu đơn này chưa có định mức.
-            </span>
           </label>
 
           {formError ? (

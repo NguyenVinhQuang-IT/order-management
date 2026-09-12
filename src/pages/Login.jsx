@@ -79,18 +79,13 @@ export default function Login() {
           aria-label="Giới thiệu"
         >
           <div>
-            <svg
-              className="mb-8 block text-parchment"
-              viewBox="0 0 18 18"
-              width="72"
-              height="72"
-              aria-hidden="true"
-            >
-              <path
-                fill="currentColor"
-                d="M3.2 6.2 9 3.1l5.8 3.1v9.2H3.2V6.2Zm1.6 1.1v6.9h8.4V7.3L9 5.1 4.8 7.3Z"
+            <div className="mb-8 w-[min(100%,320px)] rounded-[18px] bg-canvas p-5">
+              <img
+                src="/logo.png"
+                alt="BSN"
+                className="block h-auto w-full"
               />
-            </svg>
+            </div>
             <p className="mb-3 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px]">
               Order
             </p>

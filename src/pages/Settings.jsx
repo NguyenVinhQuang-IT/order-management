@@ -5,11 +5,17 @@ import SecondsEditDialog from "../components/SecondsEditDialog";
 import { useToast } from "../components/Toast";
 import {
   getOrderTypeLabel,
+  ORDER_TYPES,
   orderKey,
   ordersAtom,
   updateOrderSecondsAtom,
 } from "../orders";
-import { formatSeconds } from "../settings";
+import {
+  formatSeconds,
+  getTypeSeconds,
+  saveOneTypeSecondsAtom,
+  typeSecondsAtom,
+} from "../settings";
 
 const primaryButtonClass =
   "h-11 cursor-pointer rounded-full border-0 bg-primary px-[22px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-white hover:bg-primary-focus focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus active:scale-95 disabled:cursor-default disabled:opacity-[0.64]";
@@ -20,25 +26,47 @@ const textLinkClass =
 const tableCols =
   "desk:grid-cols-[minmax(0,1.1fr)_minmax(0,1.3fr)_minmax(0,0.6fr)_auto]";
 
-function hasOrderSeconds(order) {
-  return typeof order?.seconds === "number" && Number.isFinite(order.seconds);
-}
-
 export default function Settings() {
   const notify = useToast();
   const orders = useAtomValue(ordersAtom);
-  const clearSeconds = useSetAtom(updateOrderSecondsAtom);
+  const saved = useAtomValue(typeSecondsAtom);
+  const saveTypeSeconds = useSetAtom(saveOneTypeSecondsAtom);
+  const clearOrderSeconds = useSetAtom(updateOrderSecondsAtom);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingOrder, setEditingOrder] = useState(null);
+  const [editing, setEditing] = useState(null);
   const closeDialog = useCallback(() => {
     setDialogOpen(false);
-    setEditingOrder(null);
+    setEditing(null);
   }, []);
 
-  const configured = useMemo(
-    () => orders.filter(hasOrderSeconds),
-    [orders],
-  );
+  const rows = useMemo(() => {
+    const typeRows = ORDER_TYPES.flatMap((type) => {
+      const seconds = getTypeSeconds(saved, type.id);
+      if (seconds == null) return [];
+      return [
+        {
+          key: `type:${type.id}`,
+          kind: "type",
+          codeLabel: "Tất cả",
+          type,
+          seconds,
+        },
+      ];
+    });
+    const orderRows = orders
+      .filter(
+        (order) =>
+          typeof order.seconds === "number" && Number.isFinite(order.seconds),
+      )
+      .map((order) => ({
+        key: orderKey(order.code, order.type),
+        kind: "order",
+        codeLabel: order.code,
+        order,
+        seconds: order.seconds,
+      }));
+    return [...typeRows, ...orderRows];
+  }, [orders, saved]);
 
   useEffect(() => {
     document.title = "Thiết lập số giây CO";
@@ -47,20 +75,33 @@ export default function Settings() {
     };
   }, []);
 
-  function handleRemove(order) {
-    const result = clearSeconds(order.code, order.type, null);
+  function handleRemove(row) {
+    if (row.kind === "type") {
+      const result = saveTypeSeconds(row.type.id, "");
+      if (result.error) {
+        notify(result.error, "error");
+        return;
+      }
+      if (editing?.kind === "type" && editing.type.id === row.type.id) {
+        closeDialog();
+      }
+      notify(`Đã xóa số giây của ${row.type.label}.`);
+      return;
+    }
+
+    const result = clearOrderSeconds(row.order.code, row.order.type, null);
     if (result.error) {
       notify(result.error, "error");
       return;
     }
     if (
-      editingOrder &&
-      editingOrder.code === order.code &&
-      editingOrder.type === order.type
+      editing?.kind === "order" &&
+      editing.order.code === row.order.code &&
+      editing.order.type === row.order.type
     ) {
       closeDialog();
     }
-    notify(`Đã xóa số giây của ${order.code}.`);
+    notify(`Đã xóa số giây của ${row.order.code}.`);
   }
 
   return (
@@ -73,17 +114,14 @@ export default function Settings() {
             <h1 className="m-0 font-sans text-[34px] font-semibold leading-[1.1] tracking-[-0.01em] text-ink desk:text-[40px]">
               Thiết lập số giây CO.
             </h1>
-            <p className="mt-4 max-w-[34ch] font-sans text-[21px] font-normal leading-[1.19] tracking-[0.196px] text-ink-muted-80 desk:text-[28px] desk:leading-[1.14]">
-              Tìm mã CO đã nhập và gán số giây cho đơn đó.
-            </p>
           </div>
           <button
             className={primaryButtonClass}
             type="button"
             aria-haspopup="dialog"
-            aria-expanded={dialogOpen && !editingOrder}
+            aria-expanded={dialogOpen && !editing}
             onClick={() => {
-              setEditingOrder(null);
+              setEditing(null);
               setDialogOpen(true);
             }}
           >
@@ -92,11 +130,9 @@ export default function Settings() {
         </div>
 
         <section className="mt-10" aria-label="Định mức số giây">
-          {configured.length === 0 ? (
+          {rows.length === 0 ? (
             <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">
-              {orders.length === 0
-                ? "Chưa có đơn hàng. Nhập CO trước khi thiết lập số giây."
-                : "Chưa có định mức số giây."}
+              Chưa có định mức số giây.
             </p>
           ) : (
             <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0">
@@ -108,63 +144,74 @@ export default function Settings() {
                 <span>Số giây</span>
                 <span>Thao tác</span>
               </li>
-              {configured.map((order, index) => {
-                const key = orderKey(order.code, order.type);
-                return (
-                  <li
-                    key={key}
-                    className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-6 py-[17px] ${tableCols} ${
-                      index < configured.length - 1 ? "border-b border-hairline" : ""
-                    }`}
-                  >
-                    <span className="text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums">
-                      {order.code}
-                    </span>
-                    <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
-                      {getOrderTypeLabel(order.type)}
-                    </span>
-                    <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
-                      <span className="desk:hidden">Số giây </span>
-                      {formatSeconds(order.seconds)}
-                    </span>
-                    <div className="col-start-2 row-start-1 flex items-center gap-4 self-center desk:col-start-auto desk:row-start-auto">
-                      <button
-                        className={textLinkClass}
-                        type="button"
-                        aria-haspopup="dialog"
-                        aria-expanded={
-                          Boolean(
-                            editingOrder &&
-                              orderKey(editingOrder.code, editingOrder.type) ===
-                                key,
-                          )
-                        }
-                        onClick={() => {
-                          setDialogOpen(false);
-                          setEditingOrder(order);
-                        }}
-                      >
-                        Sửa
-                      </button>
-                      <button
-                        className={textLinkClass}
-                        type="button"
-                        onClick={() => handleRemove(order)}
-                      >
-                        Xóa
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
+              {rows.map((row, index) => (
+                <li
+                  key={row.key}
+                  className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-6 py-[17px] ${tableCols} ${
+                    index < rows.length - 1 ? "border-b border-hairline" : ""
+                  }`}
+                >
+                  <span className="text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums">
+                    {row.codeLabel}
+                  </span>
+                  <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                    {row.kind === "type"
+                      ? row.type.label
+                      : getOrderTypeLabel(row.order.type)}
+                  </span>
+                  <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                    <span className="desk:hidden">Số giây </span>
+                    {formatSeconds(row.seconds)}
+                  </span>
+                  <div className="col-start-2 row-start-1 flex items-center gap-4 self-center desk:col-start-auto desk:row-start-auto">
+                    <button
+                      className={textLinkClass}
+                      type="button"
+                      aria-haspopup="dialog"
+                      aria-expanded={
+                        Boolean(
+                          editing &&
+                            ((row.kind === "type" &&
+                              editing.kind === "type" &&
+                              editing.type.id === row.type.id) ||
+                              (row.kind === "order" &&
+                                editing.kind === "order" &&
+                                orderKey(editing.order.code, editing.order.type) ===
+                                  row.key)),
+                        )
+                      }
+                      onClick={() => {
+                        setEditing(
+                          row.kind === "type"
+                            ? {
+                                kind: "type",
+                                type: { ...row.type, seconds: row.seconds },
+                              }
+                            : { kind: "order", order: row.order },
+                        );
+                        setDialogOpen(true);
+                      }}
+                    >
+                      Sửa
+                    </button>
+                    <button
+                      className={textLinkClass}
+                      type="button"
+                      onClick={() => handleRemove(row)}
+                    >
+                      Xóa
+                    </button>
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </section>
       </main>
 
       <SecondsEditDialog
-        open={dialogOpen || Boolean(editingOrder)}
-        order={editingOrder}
+        open={dialogOpen}
+        entry={editing}
         onClose={closeDialog}
       />
     </div>
