@@ -5,12 +5,12 @@ import OrderEntryDialog from "../components/OrderEntryDialog";
 import OrderFilters from "../components/OrderFilters";
 import { useToast } from "../components/Toast";
 import {
+  accessibleOrdersAtom,
   clearOrdersAtom,
   filteredOrdersAtom,
   getOrderTypeLabel,
   hasActiveFiltersAtom,
   orderKey,
-  ordersAtom,
   removeOrderAtom,
   removeOrdersByKeysAtom,
 } from "../orders";
@@ -37,7 +37,7 @@ function formatEnteredAt(iso) {
 
 export default function Dashboard() {
   const notify = useToast();
-  const orders = useAtomValue(ordersAtom);
+  const orders = useAtomValue(accessibleOrdersAtom);
   const visibleOrders = useAtomValue(filteredOrdersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const removeOrder = useSetAtom(removeOrderAtom);

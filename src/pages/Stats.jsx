@@ -1,5 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { useAtomValue } from "jotai";
+import { getEmployee, getEmployeeName, listDirectoryEmployees } from "../auth";
+import EmployeeDirectory from "../components/EmployeeDirectory";
 import GlobalNav from "../components/GlobalNav";
 import OrderFilters from "../components/OrderFilters";
 import {
@@ -19,6 +21,7 @@ import {
 import {
   formatSeconds,
   sumOrderSeconds,
+  sumSecondsByType,
   typeSecondsAtom,
 } from "../settings";
 
@@ -35,41 +38,7 @@ function MetricCard({ label, value }) {
   );
 }
 
-function StatList({ id, title, items, empty }) {
-  return (
-    <section className="mt-12" aria-labelledby={id}>
-      <h2
-        id={id}
-        className="m-0 mb-4 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
-      >
-        {title}
-      </h2>
-      {items.length === 0 ? (
-        <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">
-          {empty}
-        </p>
-      ) : (
-        <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0">
-          {items.map((item, index) => (
-            <li
-              key={item.id}
-              className={`flex items-baseline justify-between gap-4 px-6 py-[17px] ${
-                index < items.length - 1 ? "border-b border-hairline" : ""
-              }`}
-            >
-              <span className="text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink">
-                {item.label}
-              </span>
-              <span className="text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink tabular-nums">
-                {item.value}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
+const typeTableCols = "desk:grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,0.7fr)]";
 
 export default function Stats() {
   const orders = useAtomValue(ordersAtom);
@@ -83,10 +52,35 @@ export default function Stats() {
     () => summarizeOrders(visibleOrders, { from: dateFrom, to: dateTo }),
     [visibleOrders, dateFrom, dateTo],
   );
-  const totalSeconds = useMemo(
-    () => sumOrderSeconds(visibleOrders, typeSeconds),
+  const secondsByType = useMemo(
+    () => sumSecondsByType(visibleOrders, typeSeconds),
     [visibleOrders, typeSeconds],
   );
+  const employeeRows = useMemo(
+    () =>
+      stats.byEmployee
+        .filter((item) => getEmployee(item.employeeId))
+        .map((item) => {
+          const theirs = visibleOrders.filter(
+            (order) => (order.employeeId || "—") === item.employeeId,
+          );
+          return {
+            ...item,
+            name: getEmployeeName(item.employeeId),
+            seconds: sumOrderSeconds(theirs, typeSeconds),
+          };
+        }),
+    [stats.byEmployee, visibleOrders, typeSeconds],
+  );
+  const directoryRows = useMemo(() => {
+    const byId = new Map(
+      employeeRows.map((item) => [item.employeeId, item]),
+    );
+    return listDirectoryEmployees().map((person) => ({
+      ...person,
+      count: byId.get(person.employeeId)?.count ?? 0,
+    }));
+  }, [employeeRows]);
   const emptyMessage =
     orders.length === 0
       ? "Chưa có đơn hàng."
@@ -118,55 +112,116 @@ export default function Stats() {
         </div>
 
         <section
-          className="mt-8 grid grid-cols-1 gap-4 tablet:grid-cols-2 desk:grid-cols-4"
+          className="mt-8 grid grid-cols-1 gap-4 tablet:grid-cols-2 desk:grid-cols-3"
           aria-label="Chỉ số"
         >
           <MetricCard label="Đơn đã nhập" value={stats.total} />
           <MetricCard label="Mã CO" value={stats.uniqueCodes} />
-          <MetricCard label="Số giây" value={formatSeconds(totalSeconds)} />
-          <MetricCard label="Tổng CO" value="—" />
+          <MetricCard
+            label="Tổng số giây"
+            value={formatSeconds(secondsByType.total)}
+          />
+          {secondsByType.items.map((item) => (
+            <MetricCard
+              key={item.id}
+              label={item.label}
+              value={formatSeconds(item.seconds)}
+            />
+          ))}
         </section>
 
         <section
-          className="mt-4 grid grid-cols-1 gap-4 desk:grid-cols-2"
+          className="mt-4 grid grid-cols-1 gap-4 desk:grid-cols-3"
           aria-label="Biểu đồ"
         >
           <ChartCard title="Tỷ lệ theo công đoạn">
             <DonutChart items={stats.byType} total={stats.total} />
           </ChartCard>
-          <ChartCard title={hasDateRange ? "Đơn theo ngày" : "Đơn 7 ngày gần đây"}>
+          <ChartCard
+            className="desk:col-span-2"
+            title={hasDateRange ? "Đơn theo ngày" : "Đơn 14 ngày gần đây"}
+          >
             <DayBarChart items={stats.byDay} />
           </ChartCard>
-          <ChartCard className="desk:col-span-2" title="Theo nhân viên">
-            <EmployeeBarChart items={stats.byEmployee} empty={emptyMessage} />
+          <ChartCard className="desk:col-span-3" title="Theo nhân viên">
+            <EmployeeBarChart items={employeeRows} empty={emptyMessage} />
           </ChartCard>
         </section>
 
-        <StatList
-          id="stats-by-type"
-          title="Theo công đoạn"
-          empty={emptyMessage}
-          items={
-            stats.total
-              ? stats.byType.map((item) => ({
-                  id: item.id,
-                  label: item.label,
-                  value: item.count,
-                }))
-              : []
-          }
-        />
+        <section className="mt-12" aria-labelledby="stats-by-type">
+          <h2
+            id="stats-by-type"
+            className="m-0 mb-4 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
+          >
+            Theo công đoạn
+          </h2>
+          {stats.total === 0 ? (
+            <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">
+              {emptyMessage}
+            </p>
+          ) : (
+            <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0">
+              <li
+                className={`hidden border-b border-hairline px-6 py-3 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink-muted-48 desk:grid ${typeTableCols} desk:gap-4`}
+              >
+                <span>Công đoạn</span>
+                <span>Đơn</span>
+                <span>Số giây</span>
+              </li>
+              {secondsByType.items.map((item) => (
+                <li
+                  key={item.id}
+                  className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${typeTableCols} desk:items-center desk:gap-4 border-b border-hairline`}
+                >
+                  <span className="text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink">
+                    {item.label}
+                  </span>
+                  <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                    <span className="desk:hidden">Đơn </span>
+                    {item.count}
+                  </span>
+                  <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                    <span className="desk:hidden">Số giây </span>
+                    {formatSeconds(item.seconds)}
+                  </span>
+                </li>
+              ))}
+              <li
+                className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${typeTableCols} desk:items-center desk:gap-4`}
+              >
+                <span className="text-[17px] font-semibold leading-[1.44] tracking-[-0.374px] text-ink">
+                  Tổng
+                </span>
+                <span className="text-sm font-semibold leading-[1.43] tracking-[-0.224px] text-ink tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
+                  <span className="desk:hidden">Đơn </span>
+                  {secondsByType.totalCount}
+                </span>
+                <span className="text-sm font-semibold leading-[1.43] tracking-[-0.224px] text-ink tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
+                  <span className="desk:hidden">Số giây </span>
+                  {formatSeconds(secondsByType.total)}
+                </span>
+              </li>
+            </ul>
+          )}
+        </section>
 
-        <StatList
-          id="stats-by-employee"
-          title="Theo nhân viên"
-          empty={emptyMessage}
-          items={stats.byEmployee.map((item) => ({
-            id: item.employeeId,
-            label: item.employeeId,
-            value: item.count,
-          }))}
-        />
+        <section className="mt-12" aria-labelledby="stats-by-employee">
+          <h2
+            id="stats-by-employee"
+            className="m-0 mb-4 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
+          >
+            Nhân viên
+            {directoryRows.length ? (
+              <span className="ml-2 font-normal text-ink-muted-48">
+                {directoryRows.length}
+              </span>
+            ) : null}
+          </h2>
+          <EmployeeDirectory
+            rows={directoryRows}
+            empty="Chưa có nhân viên."
+          />
+        </section>
       </main>
     </div>
   );

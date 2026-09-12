@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { homePathForRole, isAuthenticatedAtom, sessionAtom } from "./auth";
 import Toast from "./components/Toast";
 import Dashboard from "./pages/Dashboard";
+import EmployeeDetail from "./pages/EmployeeDetail";
+import Employees from "./pages/Employees";
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
 import Stats from "./pages/Stats";
@@ -64,6 +66,22 @@ export default function App() {
           element={
             <ManagerRoute>
               <Settings />
+            </ManagerRoute>
+          }
+        />
+        <Route
+          path="/nhan-vien"
+          element={
+            <ManagerRoute>
+              <Employees />
+            </ManagerRoute>
+          }
+        />
+        <Route
+          path="/nhan-vien/:employeeId"
+          element={
+            <ManagerRoute>
+              <EmployeeDetail />
             </ManagerRoute>
           }
         />

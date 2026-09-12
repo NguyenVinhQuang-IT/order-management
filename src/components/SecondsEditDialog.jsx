@@ -163,8 +163,8 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
       return;
     }
     if (parsed.value == null) {
-      setFormError("Nhập số giây.");
-      notify("Nhập số giây.", "error");
+      setFormError("Nhập thời gian hoàn thành.");
+      notify("Nhập thời gian hoàn thành.", "error");
       return;
     }
 
@@ -248,7 +248,7 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
             id="seconds-dialog-title"
             className="m-0 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
           >
-            {isEdit ? "Sửa số giây" : "Thêm mới"}
+            {isEdit ? "Sửa thời gian hoàn thành" : "Thêm mới"}
           </h2>
           <button className={ghostButtonClass} type="button" onClick={onClose}>
             Đóng
@@ -427,7 +427,7 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
 
           <label className="flex flex-col gap-2">
             <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
-              Số giây
+              Thời gian hoàn thành (giây)
             </span>
             <input
               ref={secondsRef}

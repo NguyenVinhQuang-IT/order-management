@@ -12,9 +12,15 @@ const ACCOUNTS = [
     role: "employee",
   },
   {
-    employeeId: "100",
+    employeeId: "002",
     password: "123456",
-    name: "Minh",
+    name: "Lan",
+    role: "employee",
+  },
+  {
+    employeeId: "169",
+    password: "123456",
+    name: "Trúc",
     role: "manager",
   },
 ];
@@ -26,6 +32,28 @@ export const ROLES = [
 
 export function getRoleLabel(roleId) {
   return ROLES.find((role) => role.id === roleId)?.label ?? "—";
+}
+
+export function getEmployeeName(employeeId) {
+  return ACCOUNTS.find((account) => account.employeeId === employeeId)?.name ?? "—";
+}
+
+export function getEmployee(employeeId) {
+  return ACCOUNTS.find((account) => account.employeeId === employeeId) ?? null;
+}
+
+export function employeePath(employeeId) {
+  return `/nhan-vien/${encodeURIComponent(employeeId)}`;
+}
+
+export function listDirectoryEmployees() {
+  return ACCOUNTS.map((account) => ({
+    employeeId: account.employeeId,
+    name: account.name,
+    role: account.role,
+  })).sort((left, right) =>
+    left.employeeId.localeCompare(right.employeeId, "vi"),
+  );
 }
 
 export function homePathForRole(role) {

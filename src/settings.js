@@ -74,6 +74,38 @@ export function sumOrderSeconds(orders, settings) {
   return counted === 0 ? null : total;
 }
 
+export function sumSecondsByType(orders, settings) {
+  const list = Array.isArray(orders) ? orders : [];
+  const buckets = Object.fromEntries(
+    ORDER_TYPES.map((type) => [type.id, { count: 0, seconds: 0, counted: 0 }]),
+  );
+
+  for (const order of list) {
+    const bucket = buckets[order.type];
+    if (!bucket) continue;
+    bucket.count += 1;
+    const seconds = getOrderSeconds(order, settings);
+    if (seconds == null) continue;
+    bucket.seconds += seconds;
+    bucket.counted += 1;
+  }
+
+  const items = ORDER_TYPES.map((type) => ({
+    id: type.id,
+    label: type.label,
+    count: buckets[type.id].count,
+    seconds: buckets[type.id].counted === 0 ? null : buckets[type.id].seconds,
+  }));
+  const withSeconds = items.filter((item) => item.seconds != null);
+  return {
+    items,
+    totalCount: items.reduce((sum, item) => sum + item.count, 0),
+    total: withSeconds.length === 0
+      ? null
+      : withSeconds.reduce((sum, item) => sum + item.seconds, 0),
+  };
+}
+
 export const secondsSettingsAtom = atomWithStorage(
   STORAGE_KEY,
   {},

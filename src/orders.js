@@ -1,5 +1,6 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { sessionAtom } from "./auth";
 import { sessionJsonStorage } from "./storage";
 
 const STORAGE_KEY = "om_orders";
@@ -138,6 +139,12 @@ export function filterOrdersByType(orders, typeId) {
   return list.filter((order) => order.type === typeId);
 }
 
+export function filterOrdersByEmployee(orders, employeeId) {
+  const list = Array.isArray(orders) ? orders : [];
+  if (!employeeId) return [];
+  return list.filter((order) => order.employeeId === employeeId);
+}
+
 export function filterOrders(orders, { from, to, query, type } = {}) {
   return filterOrdersByType(
     filterOrdersByQuery(filterOrdersByDateRange(orders, from, to), query),
@@ -194,14 +201,18 @@ export function filterOrdersByDateRange(orders, from, to) {
   });
 }
 
-function buildDaySeries(dayCounts, from, to) {
+function emptyTypeCounts() {
+  return Object.fromEntries(ORDER_TYPES.map((type) => [type.id, 0]));
+}
+
+function buildDaySeries(dayTypeCounts, from, to) {
   const today = new Date();
   today.setHours(12, 0, 0, 0);
   let end = parseLocalDay(to) || today;
   let start = parseLocalDay(from);
   if (!start) {
     start = new Date(end);
-    start.setDate(end.getDate() - 6);
+    start.setDate(end.getDate() - 13);
   }
   if (start > end) {
     const swap = start;
@@ -219,10 +230,17 @@ function buildDaySeries(dayCounts, from, to) {
 
   return visible.map((date) => {
     const key = dayKey(date);
+    const typeCounts = dayTypeCounts.get(key) || emptyTypeCounts();
+    const byType = ORDER_TYPES.map((type) => ({
+      id: type.id,
+      label: type.label,
+      count: typeCounts[type.id] || 0,
+    }));
     return {
       id: key,
       label: `${padDay(date.getDate())}/${padDay(date.getMonth() + 1)}`,
-      count: dayCounts.get(key) || 0,
+      count: byType.reduce((sum, item) => sum + item.count, 0),
+      byType,
     };
   });
 }
@@ -231,8 +249,8 @@ export function summarizeOrders(orders, range = {}) {
   const list = Array.isArray(orders) ? orders : [];
   const uniqueCodes = new Set();
   const typeCounts = Object.fromEntries(ORDER_TYPES.map((type) => [type.id, 0]));
-  const employeeCounts = new Map();
-  const dayCounts = new Map();
+  const employeeStats = new Map();
+  const dayTypeCounts = new Map();
 
   for (const order of list) {
     uniqueCodes.add(order.code);
@@ -240,14 +258,34 @@ export function summarizeOrders(orders, range = {}) {
       typeCounts[order.type] += 1;
     }
     const employeeId = order.employeeId || "—";
-    employeeCounts.set(employeeId, (employeeCounts.get(employeeId) || 0) + 1);
+    let bucket = employeeStats.get(employeeId);
+    if (!bucket) {
+      bucket = {
+        count: 0,
+        codes: new Set(),
+        byType: Object.fromEntries(ORDER_TYPES.map((type) => [type.id, 0])),
+      };
+      employeeStats.set(employeeId, bucket);
+    }
+    bucket.count += 1;
+    bucket.codes.add(order.code);
+    if (order.type in bucket.byType) {
+      bucket.byType[order.type] += 1;
+    }
 
     const stamp = order.createdAt || order.updatedAt;
     if (!stamp) continue;
     const date = new Date(stamp);
     if (Number.isNaN(date.getTime())) continue;
     const key = dayKey(date);
-    dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+    let dayBucket = dayTypeCounts.get(key);
+    if (!dayBucket) {
+      dayBucket = emptyTypeCounts();
+      dayTypeCounts.set(key, dayBucket);
+    }
+    if (order.type in dayBucket) {
+      dayBucket[order.type] += 1;
+    }
   }
 
   return {
@@ -258,10 +296,19 @@ export function summarizeOrders(orders, range = {}) {
       label: type.label,
       count: typeCounts[type.id],
     })),
-    byEmployee: [...employeeCounts.entries()]
+    byEmployee: [...employeeStats.entries()]
       .sort((left, right) => left[0].localeCompare(right[0]))
-      .map(([employeeId, count]) => ({ employeeId, count })),
-    byDay: buildDaySeries(dayCounts, range.from, range.to),
+      .map(([employeeId, bucket]) => ({
+        employeeId,
+        count: bucket.count,
+        uniqueCodes: bucket.codes.size,
+        byType: ORDER_TYPES.map((type) => ({
+          id: type.id,
+          label: type.label,
+          count: bucket.byType[type.id],
+        })),
+      })),
+    byDay: buildDaySeries(dayTypeCounts, range.from, range.to),
   };
 }
 
@@ -359,8 +406,16 @@ export const dateToAtom = atom("");
 export const searchQueryAtom = atom("");
 export const orderTypeFilterAtom = atom("");
 
+export const accessibleOrdersAtom = atom((get) => {
+  const orders = get(ordersAtom);
+  const session = get(sessionAtom);
+  if (!session) return [];
+  if (session.role === "manager") return orders;
+  return filterOrdersByEmployee(orders, session.employeeId);
+});
+
 export const filteredOrdersAtom = atom((get) =>
-  filterOrders(get(ordersAtom), {
+  filterOrders(get(accessibleOrdersAtom), {
     from: get(dateFromAtom),
     to: get(dateToAtom),
     query: get(searchQueryAtom),
@@ -377,23 +432,46 @@ export const hasActiveFiltersAtom = atom((get) =>
   }),
 );
 
+function ownsOrder(session, order) {
+  if (!session || !order) return false;
+  if (session.role === "manager") return true;
+  return order.employeeId === session.employeeId;
+}
+
 export const addOrdersAtom = atom(
   null,
   (get, set, codes, employeeId, type, note = "") => {
-    const result = addOrders(get(ordersAtom), codes, employeeId, type, note);
+    const session = get(sessionAtom);
+    const actorId = session?.employeeId || employeeId;
+    const result = addOrders(get(ordersAtom), codes, actorId, type, note);
     set(ordersAtom, result.orders);
     return result;
   },
 );
 
 export const removeOrderAtom = atom(null, (get, set, code, type) => {
-  const next = removeOrder(get(ordersAtom), code, type);
+  const session = get(sessionAtom);
+  const current = get(ordersAtom);
+  const order = current.find((item) => item.code === code && item.type === type);
+  if (!ownsOrder(session, order)) return current;
+  const next = removeOrder(current, code, type);
   set(ordersAtom, next);
   return next;
 });
 
 export const removeOrdersByKeysAtom = atom(null, (get, set, keys) => {
-  const next = removeOrdersByKeys(get(ordersAtom), keys);
+  const session = get(sessionAtom);
+  const current = get(ordersAtom);
+  const allowed =
+    session?.role === "manager"
+      ? keys
+      : [...keys].filter((key) => {
+          const order = current.find(
+            (item) => orderKey(item.code, item.type) === key,
+          );
+          return ownsOrder(session, order);
+        });
+  const next = removeOrdersByKeys(current, allowed);
   set(ordersAtom, next);
   return next;
 });
@@ -401,12 +479,15 @@ export const removeOrdersByKeysAtom = atom(null, (get, set, keys) => {
 export const updateOrderAtom = atom(
   null,
   (get, set, originalCode, originalType, patch) => {
-    const result = updateOrder(
-      get(ordersAtom),
-      originalCode,
-      originalType,
-      patch,
+    const session = get(sessionAtom);
+    const current = get(ordersAtom);
+    const existing = current.find(
+      (item) => item.code === originalCode && item.type === originalType,
     );
+    if (!ownsOrder(session, existing)) {
+      return { orders: current, error: "Không thể sửa đơn của người khác." };
+    }
+    const result = updateOrder(current, originalCode, originalType, patch);
     if (!result.error) {
       set(ordersAtom, result.orders);
     }
@@ -433,7 +514,17 @@ export const updateOrdersSecondsAtom = atom(null, (get, set, keys, seconds) => {
   return result;
 });
 
-export const clearOrdersAtom = atom(null, (_get, set) => {
-  set(ordersAtom, []);
-  return [];
+export const clearOrdersAtom = atom(null, (get, set) => {
+  const session = get(sessionAtom);
+  const current = get(ordersAtom);
+  if (!session) return current;
+  if (session.role === "manager") {
+    set(ordersAtom, []);
+    return [];
+  }
+  const next = current.filter(
+    (order) => order.employeeId !== session.employeeId,
+  );
+  set(ordersAtom, next);
+  return next;
 });

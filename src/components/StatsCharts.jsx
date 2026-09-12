@@ -1,3 +1,7 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { employeePath } from "../auth";
+
 const CHART_COLORS = ["#0066cc", "#1d1d1f", "#6e6e73", "#2997ff"];
 
 function niceMax(value) {
@@ -23,11 +27,11 @@ export function ChartCard({ title, children, className = "" }) {
 }
 
 export function DonutChart({ items, total }) {
-  const size = 196;
-  const cx = 98;
-  const cy = 98;
-  const radius = 68;
-  const stroke = 18;
+  const size = 140;
+  const cx = 70;
+  const cy = 70;
+  const radius = 48;
+  const stroke = 14;
   const circumference = 2 * Math.PI * radius;
 
   const arcs = [];
@@ -42,7 +46,7 @@ export function DonutChart({ items, total }) {
   });
 
   return (
-    <div className="flex flex-col items-center gap-6 tablet:flex-row tablet:justify-center tablet:gap-10">
+    <div className="flex flex-col items-center gap-4">
       <svg
         width={size}
         height={size}
@@ -77,7 +81,7 @@ export function DonutChart({ items, total }) {
           y={cy - 4}
           textAnchor="middle"
           fill="#1d1d1f"
-          fontSize="28"
+          fontSize="22"
           fontWeight="600"
           fontFamily="Inter, system-ui, sans-serif"
         >
@@ -85,16 +89,16 @@ export function DonutChart({ items, total }) {
         </text>
         <text
           x={cx}
-          y={cy + 18}
+          y={cy + 16}
           textAnchor="middle"
           fill="#7a7a7a"
-          fontSize="12"
+          fontSize="11"
           fontFamily="Inter, system-ui, sans-serif"
         >
           đơn
         </text>
       </svg>
-      <ul className="m-0 flex w-full max-w-[220px] list-none flex-col gap-3 p-0">
+      <ul className="m-0 flex w-full list-none flex-col gap-2 p-0">
         {items.map((item, index) => (
           <li key={item.id} className="flex items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink">
@@ -116,7 +120,12 @@ export function DonutChart({ items, total }) {
 }
 
 export function DayBarChart({ items }) {
-  const width = Math.max(420, items.length * 36 + 40);
+  const [tip, setTip] = useState(null);
+  const types = items[0]?.byType?.length
+    ? items[0].byType
+    : [{ id: "all", label: "Đơn", count: 0 }];
+  const typeCount = Math.max(types.length, 1);
+  const width = Math.max(420, items.length * (18 * typeCount + 16) + 40);
   const height = 220;
   const padL = 28;
   const padR = 8;
@@ -124,79 +133,205 @@ export function DayBarChart({ items }) {
   const padB = 32;
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
-  const max = niceMax(Math.max(...items.map((item) => item.count), 0));
-  const gap = 8;
-  const barW = Math.max(14, (plotW - gap * (items.length + 1)) / items.length);
+  const max = niceMax(
+    Math.max(
+      ...items.flatMap((item) =>
+        item.byType?.length
+          ? item.byType.map((type) => type.count)
+          : [item.count],
+      ),
+      0,
+    ),
+  );
+  const groupGap = 10;
+  const barGap = 3;
+  const groupW = Math.max(
+    12,
+    (plotW - groupGap * (items.length + 1)) / items.length,
+  );
+  const barW = Math.max(6, (groupW - barGap * (typeCount - 1)) / typeCount);
   const ticks = [0, 0.5, 1];
 
+  function showTip(event, dayLabel, typeLabel, count) {
+    setTip({
+      x: event.clientX,
+      y: event.clientY,
+      dayLabel,
+      typeLabel,
+      count,
+    });
+  }
+
   return (
-    <div className="overflow-x-auto">
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-auto w-full"
-      role="img"
-      aria-label="Số đơn theo ngày"
-    >
-      {ticks.map((tick) => {
-        const y = padT + plotH * (1 - tick);
-        return (
-          <g key={tick}>
-            <line
-              x1={padL}
-              x2={width - padR}
-              y1={y}
-              y2={y}
-              stroke="#e0e0e0"
+    <div>
+      <div className="relative overflow-x-auto" onMouseLeave={() => setTip(null)}>
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="h-auto w-full"
+          role="img"
+          aria-label="Số đơn theo ngày và công đoạn"
+        >
+          {ticks.map((tick) => {
+            const y = padT + plotH * (1 - tick);
+            return (
+              <g key={tick}>
+                <line
+                  x1={padL}
+                  x2={width - padR}
+                  y1={y}
+                  y2={y}
+                  stroke="#e0e0e0"
+                />
+                <text
+                  x={padL - 6}
+                  y={y + 4}
+                  textAnchor="end"
+                  fill="#7a7a7a"
+                  fontSize="11"
+                  fontFamily="Inter, system-ui, sans-serif"
+                >
+                  {Math.round(max * tick)}
+                </text>
+              </g>
+            );
+          })}
+          {items.map((item, index) => {
+            const groupX = padL + groupGap + index * (groupW + groupGap);
+            const series = item.byType?.length
+              ? item.byType
+              : [{ id: "all", label: "Đơn", count: item.count }];
+            const barsWidth = typeCount * barW + (typeCount - 1) * barGap;
+            const barOrigin = groupX + Math.max(0, (groupW - barsWidth) / 2);
+            return (
+              <g key={item.id}>
+                {series.map((type, typeIndex) => {
+                  const heightValue = max > 0 ? (type.count / max) * plotH : 0;
+                  const x = barOrigin + typeIndex * (barW + barGap);
+                  const y = padT + plotH - heightValue;
+                  if (type.count <= 0) return null;
+                  const typeLabel =
+                    type.label || types[typeIndex]?.label || "Đơn";
+                  return (
+                    <rect
+                      key={type.id}
+                      x={x}
+                      y={y}
+                      width={barW}
+                      height={heightValue}
+                      rx={5}
+                      fill={CHART_COLORS[typeIndex % CHART_COLORS.length]}
+                      className="cursor-pointer"
+                      onMouseEnter={(event) =>
+                        showTip(event, item.label, typeLabel, type.count)
+                      }
+                      onMouseMove={(event) =>
+                        showTip(event, item.label, typeLabel, type.count)
+                      }
+                    />
+                  );
+                })}
+                <text
+                  x={groupX + groupW / 2}
+                  y={height - 10}
+                  textAnchor="middle"
+                  fill="#7a7a7a"
+                  fontSize="11"
+                  fontFamily="Inter, system-ui, sans-serif"
+                >
+                  {item.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+        {tip ? (
+          <div
+            className="pointer-events-none fixed z-50 rounded-[12px] bg-ink px-3 py-2 text-white shadow-product"
+            style={{ left: tip.x + 12, top: tip.y - 12, transform: "translateY(-100%)" }}
+          >
+            <p className="m-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-body-muted">
+              {tip.dayLabel} · {tip.typeLabel}
+            </p>
+            <p className="m-0 mt-1 text-[17px] font-semibold leading-none tracking-[-0.374px] tabular-nums">
+              {tip.count} đơn
+            </p>
+          </div>
+        ) : null}
+      </div>
+      <ul className="mt-4 m-0 flex list-none flex-wrap gap-x-5 gap-y-2 p-0">
+        {types.map((type, index) => (
+          <li
+            key={type.id}
+            className="flex items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink"
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{
+                backgroundColor: CHART_COLORS[index % CHART_COLORS.length],
+              }}
+              aria-hidden="true"
             />
-            <text
-              x={padL - 6}
-              y={y + 4}
-              textAnchor="end"
-              fill="#7a7a7a"
-              fontSize="11"
-              fontFamily="Inter, system-ui, sans-serif"
-            >
-              {Math.round(max * tick)}
-            </text>
-          </g>
-        );
-      })}
-      {items.map((item, index) => {
-        const heightValue = (item.count / max) * plotH;
-        const x = padL + gap + index * (barW + gap);
-        const y = padT + plotH - heightValue;
-        return (
-          <g key={item.id}>
-            {item.count > 0 ? (
-              <rect
-                x={x}
-                y={y}
-                width={barW}
-                height={heightValue}
-                rx={6}
-                fill="#0066cc"
-              />
-            ) : null}
-            <text
-              x={x + barW / 2}
-              y={height - 10}
-              textAnchor="middle"
-              fill="#7a7a7a"
-              fontSize="11"
-              fontFamily="Inter, system-ui, sans-serif"
-            >
-              {item.label}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+            {type.label}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function EmployeeStageBars({ item, max }) {
+  const series = item.byType?.length
+    ? item.byType
+    : [{ id: "all", count: item.count }];
+
+  return (
+    <div className="flex min-w-0 items-start gap-3">
+      <span className="w-[7.5rem] shrink-0">
+        <span className="block truncate text-sm leading-[1.29] tracking-[-0.224px] text-ink">
+          {item.name && item.name !== "—" ? item.name : item.employeeId}
+        </span>
+        <span className="block text-sm leading-[1.29] tracking-[-0.224px] text-ink-muted-48 tabular-nums">
+          {item.employeeId}
+        </span>
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        {series.map((type, index) => {
+          const percent = max > 0 ? (type.count / max) * 100 : 0;
+          return (
+            <div key={type.id} className="flex items-center gap-3">
+              <div className="h-2.5 min-w-0 flex-1 rounded-full bg-parchment">
+                {type.count > 0 ? (
+                  <div
+                    className="h-2.5 rounded-full"
+                    style={{
+                      width: `${percent}%`,
+                      backgroundColor:
+                        CHART_COLORS[index % CHART_COLORS.length],
+                    }}
+                  />
+                ) : null}
+              </div>
+              <span className="w-10 shrink-0 text-right text-sm leading-[1.29] tracking-[-0.224px] text-ink tabular-nums">
+                {type.count}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 export function EmployeeBarChart({ items, empty = "Chưa có dữ liệu." }) {
-  const max = Math.max(...items.map((item) => item.count), 0);
+  const types = items[0]?.byType?.length ? items[0].byType : [];
+  const max = Math.max(
+    ...items.flatMap((item) =>
+      item.byType?.length
+        ? item.byType.map((type) => type.count)
+        : [item.count],
+    ),
+    0,
+  );
 
   if (items.length === 0) {
     return (
@@ -207,26 +342,42 @@ export function EmployeeBarChart({ items, empty = "Chưa có dữ liệu." }) {
   }
 
   return (
-    <ul className="m-0 flex list-none flex-col gap-4 p-0">
-      {items.map((item) => {
-        const percent = max > 0 ? Math.max(6, (item.count / max) * 100) : 0;
-        return (
-          <li key={item.employeeId} className="flex items-center gap-3">
-            <span className="w-14 shrink-0 text-sm leading-[1.29] tracking-[-0.224px] text-ink tabular-nums">
-              {item.employeeId}
-            </span>
-            <div className="h-3 min-w-0 flex-1 rounded-full bg-parchment">
-              <div
-                className="h-3 rounded-full bg-primary"
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-            <span className="w-8 shrink-0 text-right text-sm leading-[1.29] tracking-[-0.224px] text-ink tabular-nums">
-              {item.count}
-            </span>
+    <div>
+      <ul className="m-0 flex list-none flex-col gap-5 p-0">
+        {items.map((item) => (
+          <li key={item.employeeId}>
+            {item.employeeId && item.employeeId !== "—" ? (
+              <Link
+                to={employeePath(item.employeeId)}
+                className="block no-underline hover:opacity-80"
+              >
+                <EmployeeStageBars item={item} max={max} />
+              </Link>
+            ) : (
+              <EmployeeStageBars item={item} max={max} />
+            )}
           </li>
-        );
-      })}
-    </ul>
+        ))}
+      </ul>
+      {types.length ? (
+        <ul className="mt-4 m-0 flex list-none flex-wrap gap-x-5 gap-y-2 p-0">
+          {types.map((type, index) => (
+            <li
+              key={type.id}
+              className="flex items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink"
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{
+                  backgroundColor: CHART_COLORS[index % CHART_COLORS.length],
+                }}
+                aria-hidden="true"
+              />
+              {type.label}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }

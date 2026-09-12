@@ -69,7 +69,7 @@ export default function Settings() {
   }, [orders, saved]);
 
   useEffect(() => {
-    document.title = "Thiết lập số giây CO";
+    document.title = "Thiết lập thời gian hoàn thành";
     return () => {
       document.title = "Order";
     };
@@ -112,8 +112,11 @@ export default function Settings() {
         <div className="flex flex-col gap-6 tablet:flex-row tablet:items-end tablet:justify-between">
           <div>
             <h1 className="m-0 font-sans text-[34px] font-semibold leading-[1.1] tracking-[-0.01em] text-ink desk:text-[40px]">
-              Thiết lập số giây CO.
+              Thiết lập thời gian hoàn thành.
             </h1>
+            <p className="mt-4 max-w-[34ch] font-sans text-[21px] font-normal leading-[1.19] tracking-[0.196px] text-ink-muted-80 desk:text-[28px] desk:leading-[1.14]">
+              Số giây để hoàn thành mỗi đơn.
+            </p>
           </div>
           <button
             className={primaryButtonClass}
@@ -129,10 +132,10 @@ export default function Settings() {
           </button>
         </div>
 
-        <section className="mt-10" aria-label="Định mức số giây">
+        <section className="mt-10" aria-label="Thời gian hoàn thành">
           {rows.length === 0 ? (
             <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">
-              Chưa có định mức số giây.
+              Chưa có thời gian hoàn thành.
             </p>
           ) : (
             <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0">
@@ -141,7 +144,7 @@ export default function Settings() {
               >
                 <span>Mã đơn</span>
                 <span>Công đoạn</span>
-                <span>Số giây</span>
+                <span>Giây</span>
                 <span>Thao tác</span>
               </li>
               {rows.map((row, index) => (
@@ -160,7 +163,7 @@ export default function Settings() {
                       : getOrderTypeLabel(row.order.type)}
                   </span>
                   <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
-                    <span className="desk:hidden">Số giây </span>
+                    <span className="desk:hidden">Giây </span>
                     {formatSeconds(row.seconds)}
                   </span>
                   <div className="col-start-2 row-start-1 flex items-center gap-4 self-center desk:col-start-auto desk:row-start-auto">
