@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { sessionAtom } from "../auth";
-import { addOrdersAtom, ORDER_TYPES, parseOrderLines } from "../orders";
+import {
+  addOrdersAtom,
+  normalizeOrderCode,
+  ORDER_TYPES,
+  parseOrderLines,
+  updateOrderAtom,
+} from "../orders";
 import { useToast } from "./Toast";
 
 const primaryButtonClass =
@@ -13,13 +19,21 @@ const ghostButtonClass =
 const selectChevron =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%231d1d1f' d='M1.2 1.3 6 6.1l4.8-4.8'/%3E%3C/svg%3E\")";
 
-export default function OrderEntryDialog({ open, onClose }) {
+const selectClass =
+  "h-11 w-full appearance-none rounded-full border border-black/8 bg-canvas bg-[length:12px_8px] bg-[position:right_20px_center] bg-no-repeat px-5 pr-12 text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink outline-none focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]";
+
+const textFieldClass =
+  "h-11 w-full rounded-full border border-black/8 bg-canvas px-5 text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink outline-none focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]";
+
+export default function OrderEntryDialog({ open, onClose, order = null }) {
   const notify = useToast();
   const session = useAtomValue(sessionAtom);
   const addOrders = useSetAtom(addOrdersAtom);
+  const updateOrder = useSetAtom(updateOrderAtom);
   const firstFieldRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const isEdit = Boolean(order);
   const [text, setText] = useState("");
   const [orderType, setOrderType] = useState("");
   const [note, setNote] = useState("");
@@ -34,6 +48,11 @@ export default function OrderEntryDialog({ open, onClose }) {
       setFormError("");
       return undefined;
     }
+
+    setText(order?.code ?? "");
+    setOrderType(order?.type ?? "");
+    setNote(order?.note ?? "");
+    setFormError("");
 
     const frame = window.requestAnimationFrame(() => {
       firstFieldRef.current?.focus();
@@ -51,13 +70,12 @@ export default function OrderEntryDialog({ open, onClose }) {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKey);
     };
-  }, [open]);
+  }, [open, order]);
 
   if (!open) return null;
 
   function handleSubmit(event) {
     event.preventDefault();
-    const { valid } = parseOrderLines(text);
 
     if (!orderType) {
       setFormError("Chọn công đoạn.");
@@ -65,6 +83,30 @@ export default function OrderEntryDialog({ open, onClose }) {
       return;
     }
 
+    if (isEdit) {
+      const code = normalizeOrderCode(text);
+      if (!code) {
+        setFormError("Nhập mã đơn.");
+        notify("Nhập mã đơn.", "error");
+        return;
+      }
+
+      const result = updateOrder(order.code, order.type, {
+        code,
+        type: orderType,
+        note,
+      });
+      if (result.error) {
+        setFormError(result.error);
+        notify(result.error, "error");
+        return;
+      }
+      notify(`Đã cập nhật ${code}.`);
+      onClose();
+      return;
+    }
+
+    const { valid } = parseOrderLines(text);
     if (valid.length === 0) {
       setFormError("Nhập ít nhất một mã đơn, mỗi dòng một mã.");
       notify("Nhập ít nhất một mã đơn.", "error");
@@ -106,7 +148,7 @@ export default function OrderEntryDialog({ open, onClose }) {
             id="entry-dialog-title"
             className="m-0 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
           >
-            Nhập đơn
+            {isEdit ? "Sửa đơn" : "Nhập đơn"}
           </h2>
           <button className={ghostButtonClass} type="button" onClick={onClose}>
             Đóng
@@ -120,7 +162,7 @@ export default function OrderEntryDialog({ open, onClose }) {
             </span>
             <select
               ref={firstFieldRef}
-              className="h-11 w-full appearance-none rounded-full border border-black/8 bg-canvas bg-[length:12px_8px] bg-[position:right_20px_center] bg-no-repeat px-5 pr-12 text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink outline-none focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]"
+              className={selectClass}
               style={{ backgroundImage: selectChevron }}
               name="orderType"
               value={orderType}
@@ -138,40 +180,62 @@ export default function OrderEntryDialog({ open, onClose }) {
             </select>
           </label>
 
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
-              Danh sách mã đơn
-            </span>
-            <textarea
-              className="min-h-[200px] w-full resize-y rounded-[18px] border border-black/8 bg-canvas px-5 py-4 font-sans text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-ink outline-none tabular-nums focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]"
-              name="orders"
-              value={text}
-              onChange={(event) => {
-                setText(event.target.value);
-                if (formError) setFormError("");
-              }}
-              onKeyDown={handleKeyDown}
-              spellCheck={false}
-              autoCapitalize="characters"
-              placeholder={"CO26090405992\nCO26090405991\nCO26090405990"}
-              aria-describedby="order-help"
-            />
-            <span
-              id="order-help"
-              className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48"
-            >
-              {preview.valid.length
-                ? `${preview.valid.length} mã đơn.`
-                : "Dán mã đơn, mỗi dòng một mã."}
-            </span>
-          </label>
+          {isEdit ? (
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+                Mã đơn
+              </span>
+              <input
+                className={`${textFieldClass} tabular-nums`}
+                name="orderCode"
+                type="text"
+                value={text}
+                onChange={(event) => {
+                  setText(event.target.value.toUpperCase());
+                  if (formError) setFormError("");
+                }}
+                onKeyDown={handleKeyDown}
+                spellCheck={false}
+                autoCapitalize="characters"
+                placeholder="CO26090405992"
+              />
+            </label>
+          ) : (
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+                Danh sách mã đơn
+              </span>
+              <textarea
+                className="min-h-[200px] w-full resize-y rounded-[18px] border border-black/8 bg-canvas px-5 py-4 font-sans text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-ink outline-none tabular-nums focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]"
+                name="orders"
+                value={text}
+                onChange={(event) => {
+                  setText(event.target.value);
+                  if (formError) setFormError("");
+                }}
+                onKeyDown={handleKeyDown}
+                spellCheck={false}
+                autoCapitalize="characters"
+                placeholder={"CO26090405992\nCO26090405991\nCO26090405990"}
+                aria-describedby="order-help"
+              />
+              <span
+                id="order-help"
+                className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48"
+              >
+                {preview.valid.length
+                  ? `${preview.valid.length} mã đơn.`
+                  : "Dán mã đơn, mỗi dòng một mã."}
+              </span>
+            </label>
+          )}
 
           <label className="mt-6 flex flex-col gap-2">
             <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
               Ghi chú
             </span>
             <input
-              className="h-11 w-full rounded-full border border-black/8 bg-canvas px-5 text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink outline-none focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]"
+              className={textFieldClass}
               name="note"
               type="text"
               value={note}
@@ -191,7 +255,7 @@ export default function OrderEntryDialog({ open, onClose }) {
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <button className={primaryButtonClass} type="submit">
-              Nhập đơn
+              {isEdit ? "Lưu" : "Nhập đơn"}
             </button>
             <button className={ghostButtonClass} type="button" onClick={onClose}>
               Hủy

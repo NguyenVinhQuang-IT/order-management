@@ -1,37 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import DateRangeFilter from "../components/DateRangeFilter";
 import GlobalNav from "../components/GlobalNav";
 import OrderEntryDialog from "../components/OrderEntryDialog";
+import OrderFilters from "../components/OrderFilters";
 import { useToast } from "../components/Toast";
 import {
   clearOrdersAtom,
-  dateFromAtom,
-  dateToAtom,
   filteredOrdersAtom,
   getOrderTypeLabel,
-  normalizeOrderCode,
-  ORDER_TYPES,
+  hasActiveFiltersAtom,
   orderKey,
   ordersAtom,
   removeOrderAtom,
   removeOrdersByKeysAtom,
-  updateOrderAtom,
 } from "../orders";
+import {
+  formatSeconds,
+  getOrderSeconds,
+  typeSecondsAtom,
+} from "../settings";
 
 const primaryButtonClass =
   "h-11 cursor-pointer rounded-full border-0 bg-primary px-[22px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-white hover:bg-primary-focus focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus active:scale-95 disabled:cursor-default disabled:opacity-[0.64]";
 
 const textLinkClass =
   "cursor-pointer border-0 bg-transparent p-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-primary";
-
-const selectChevron =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%231d1d1f' d='M1.2 1.3 6 6.1l4.8-4.8'/%3E%3C/svg%3E\")";
-
-const compactFieldClass =
-  "h-11 w-full rounded-full border border-black/8 bg-canvas px-4 text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink outline-none focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]";
-
-const compactSelectClass = `${compactFieldClass} appearance-none bg-[length:12px_8px] bg-[position:right_14px_center] bg-no-repeat pr-10`;
 
 const orderListCols =
   "desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.55fr)_minmax(0,1fr)_auto]";
@@ -47,11 +40,11 @@ function formatEnteredAt(iso) {
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-function EmptyValue({ label }) {
+function CellValue({ label, value }) {
   return (
     <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
       <span className="desk:hidden">{label} </span>
-      —
+      {value}
     </span>
   );
 }
@@ -60,20 +53,18 @@ export default function Dashboard() {
   const notify = useToast();
   const orders = useAtomValue(ordersAtom);
   const visibleOrders = useAtomValue(filteredOrdersAtom);
-  const dateFrom = useAtomValue(dateFromAtom);
-  const dateTo = useAtomValue(dateToAtom);
-  const hasDateRange = Boolean(dateFrom || dateTo);
+  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
+  const typeSeconds = useAtomValue(typeSecondsAtom);
   const removeOrder = useSetAtom(removeOrderAtom);
   const removeOrdersByKeys = useSetAtom(removeOrdersByKeysAtom);
-  const updateOrder = useSetAtom(updateOrderAtom);
   const clearOrders = useSetAtom(clearOrdersAtom);
   const [entryOpen, setEntryOpen] = useState(false);
-  const closeEntry = useCallback(() => setEntryOpen(false), []);
-  const [editingKey, setEditingKey] = useState("");
-  const [editCode, setEditCode] = useState("");
-  const [editType, setEditType] = useState("");
-  const [editNote, setEditNote] = useState("");
-  const [editError, setEditError] = useState("");
+  const [editingOrder, setEditingOrder] = useState(null);
+  const dialogOpen = entryOpen || Boolean(editingOrder);
+  const closeDialog = useCallback(() => {
+    setEntryOpen(false);
+    setEditingOrder(null);
+  }, []);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const draggingRef = useRef(false);
   const anchorIndexRef = useRef(-1);
@@ -95,6 +86,11 @@ export default function Dashboard() {
       const next = new Set([...current].filter((key) => valid.has(key)));
       return next.size === current.size ? current : next;
     });
+    setEditingOrder((current) =>
+      current && !valid.has(orderKey(current.code, current.type))
+        ? null
+        : current,
+    );
   }, [visibleOrders]);
 
   useEffect(() => {
@@ -133,9 +129,12 @@ export default function Dashboard() {
   }, []);
 
   function handleRemove(code, type) {
-    if (editingKey === orderKey(code, type)) {
-      setEditingKey("");
-      setEditError("");
+    if (
+      editingOrder &&
+      editingOrder.code === code &&
+      editingOrder.type === type
+    ) {
+      setEditingOrder(null);
     }
     removeOrder(code, type);
     notify(`Đã xóa ${code}.`);
@@ -151,15 +150,14 @@ export default function Dashboard() {
     if (count === 0) return;
     removeOrdersByKeys(selectedKeys);
     setSelectedKeys(new Set());
-    setEditingKey("");
-    setEditError("");
+    setEditingOrder(null);
     notify(`Đã xóa ${count} đơn hàng.`);
   }
 
   function handleRowPointerDown(event, index, key) {
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, a")) return;
-    if (editingKey) return;
+    if (dialogOpen) return;
 
     event.preventDefault();
     draggingRef.current = true;
@@ -193,40 +191,15 @@ export default function Dashboard() {
   }
 
   function handleClear() {
-    setEditingKey("");
-    setEditError("");
+    setEditingOrder(null);
     setSelectedKeys(new Set());
     clearOrders();
     notify("Đã xóa toàn bộ đơn hàng.");
   }
 
   function handleStartEdit(order) {
-    setEditingKey(orderKey(order.code, order.type));
-    setEditCode(order.code);
-    setEditType(order.type ?? "");
-    setEditNote(order.note ?? "");
-    setEditError("");
-  }
-
-  function handleCancelEdit() {
-    setEditingKey("");
-    setEditError("");
-  }
-
-  function handleSaveEdit(order) {
-    const result = updateOrder(order.code, order.type, {
-      code: editCode,
-      type: editType,
-      note: editNote,
-    });
-    if (result.error) {
-      setEditError(result.error);
-      notify(result.error, "error");
-      return;
-    }
-    setEditingKey("");
-    setEditError("");
-    notify(`Đã cập nhật ${normalizeOrderCode(editCode)}.`);
+    setEntryOpen(false);
+    setEditingOrder(order);
   }
 
   return (
@@ -249,7 +222,10 @@ export default function Dashboard() {
             type="button"
             aria-haspopup="dialog"
             aria-expanded={entryOpen}
-            onClick={() => setEntryOpen(true)}
+            onClick={() => {
+              setEditingOrder(null);
+              setEntryOpen(true);
+            }}
           >
             Nhập đơn
           </button>
@@ -283,7 +259,7 @@ export default function Dashboard() {
           </div>
 
           <div className="mb-4">
-            <DateRangeFilter />
+            <OrderFilters />
           </div>
 
           {orders.length === 0 ? (
@@ -292,8 +268,8 @@ export default function Dashboard() {
             </p>
           ) : visibleOrders.length === 0 ? (
             <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">
-              {hasDateRange
-                ? "Không có đơn trong khoảng ngày đã chọn."
+              {hasActiveFilters
+                ? "Không có đơn khớp với bộ lọc."
                 : "Chưa có đơn hàng."}
             </p>
           ) : (
@@ -310,7 +286,6 @@ export default function Dashboard() {
               </li>
               {visibleOrders.map((order, index) => {
                 const key = orderKey(order.code, order.type);
-                const isEditing = editingKey === key;
                 const isSelected = selectedKeys.has(key);
                 return (
                   <li
@@ -323,46 +298,12 @@ export default function Dashboard() {
                       isSelected ? "bg-[#e8f1fb]" : "bg-canvas"
                     } ${index < visibleOrders.length - 1 ? "border-b border-hairline" : ""}`}
                   >
-                    {isEditing ? (
-                      <input
-                        className={`${compactFieldClass} tabular-nums`}
-                        value={editCode}
-                        onChange={(event) => {
-                          setEditCode(event.target.value.toUpperCase());
-                          if (editError) setEditError("");
-                        }}
-                        spellCheck={false}
-                        autoCapitalize="characters"
-                        aria-label="Mã đơn"
-                      />
-                    ) : (
-                      <span className="text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums">
-                        {order.code}
-                      </span>
-                    )}
-                    {isEditing ? (
-                      <select
-                        className={`${compactSelectClass} col-start-1 desk:col-start-auto`}
-                        style={{ backgroundImage: selectChevron }}
-                        value={editType}
-                        onChange={(event) => {
-                          setEditType(event.target.value);
-                          if (editError) setEditError("");
-                        }}
-                        aria-label="Công đoạn"
-                      >
-                        <option value="">Chọn công đoạn</option>
-                        {ORDER_TYPES.map((type) => (
-                          <option key={type.id} value={type.id}>
-                            {type.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
-                        {getOrderTypeLabel(order.type)}
-                      </span>
-                    )}
+                    <span className="text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums">
+                      {order.code}
+                    </span>
+                    <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                      {getOrderTypeLabel(order.type)}
+                    </span>
                     <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
                       <span className="desk:hidden">Mã NV </span>
                       {order.employeeId || "—"}
@@ -370,73 +311,45 @@ export default function Dashboard() {
                     <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
                       {formatEnteredAt(order.updatedAt || order.createdAt)}
                     </span>
-                    <EmptyValue label="Số giây" />
-                    <EmptyValue label="Tổng CO" />
-                    {isEditing ? (
-                      <input
-                        className={`${compactFieldClass} col-start-1 desk:col-start-auto`}
-                        value={editNote}
-                        onChange={(event) => setEditNote(event.target.value)}
-                        aria-label="Ghi chú"
-                        placeholder="Ghi chú"
-                      />
-                    ) : (
-                      <span className="col-start-1 break-words text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
-                        {order.note ? (
-                          order.note
-                        ) : (
-                          <>
-                            <span className="desk:hidden">Ghi chú </span>
-                            —
-                          </>
-                        )}
-                      </span>
-                    )}
-                    <div className="col-start-2 row-start-1 flex items-center gap-4 self-center desk:col-start-auto desk:row-start-auto">
-                      {isEditing ? (
-                        <>
-                          <button
-                            className={textLinkClass}
-                            type="button"
-                            onClick={() => handleSaveEdit(order)}
-                          >
-                            Lưu
-                          </button>
-                          <button
-                            className={textLinkClass}
-                            type="button"
-                            onClick={handleCancelEdit}
-                          >
-                            Hủy
-                          </button>
-                        </>
+                    <CellValue
+                      label="Số giây"
+                      value={formatSeconds(getOrderSeconds(order, typeSeconds))}
+                    />
+                    <CellValue label="Tổng CO" value="—" />
+                    <span className="col-start-1 break-words text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                      {order.note ? (
+                        order.note
                       ) : (
                         <>
-                          <button
-                            className={textLinkClass}
-                            type="button"
-                            onClick={() => handleStartEdit(order)}
-                          >
-                            Sửa
-                          </button>
-                          <button
-                            className={textLinkClass}
-                            type="button"
-                            onClick={() => handleRemove(order.code, order.type)}
-                          >
-                            Xóa
-                          </button>
+                          <span className="desk:hidden">Ghi chú </span>
+                          —
                         </>
                       )}
-                    </div>
-                    {isEditing && editError ? (
-                      <p
-                        className="col-span-2 m-0 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-warn desk:col-span-8"
-                        role="alert"
+                    </span>
+                    <div className="col-start-2 row-start-1 flex items-center gap-4 self-center desk:col-start-auto desk:row-start-auto">
+                      <button
+                        className={textLinkClass}
+                        type="button"
+                        aria-haspopup="dialog"
+                        aria-expanded={
+                          Boolean(
+                            editingOrder &&
+                              orderKey(editingOrder.code, editingOrder.type) ===
+                                key,
+                          )
+                        }
+                        onClick={() => handleStartEdit(order)}
                       >
-                        {editError}
-                      </p>
-                    ) : null}
+                        Sửa
+                      </button>
+                      <button
+                        className={textLinkClass}
+                        type="button"
+                        onClick={() => handleRemove(order.code, order.type)}
+                      >
+                        Xóa
+                      </button>
+                    </div>
                   </li>
                 );
               })}
@@ -445,7 +358,11 @@ export default function Dashboard() {
         </section>
       </main>
 
-      <OrderEntryDialog open={entryOpen} onClose={closeEntry} />
+      <OrderEntryDialog
+        open={dialogOpen}
+        order={editingOrder}
+        onClose={closeDialog}
+      />
 
       {selectedKeys.size > 0 ? (
         <div className="fixed bottom-8 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-ink px-4 py-2 text-white">

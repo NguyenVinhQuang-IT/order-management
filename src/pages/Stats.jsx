@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { useAtomValue } from "jotai";
-import DateRangeFilter from "../components/DateRangeFilter";
 import GlobalNav from "../components/GlobalNav";
+import OrderFilters from "../components/OrderFilters";
 import {
   ChartCard,
   DayBarChart,
@@ -12,9 +12,15 @@ import {
   dateFromAtom,
   dateToAtom,
   filteredOrdersAtom,
+  hasActiveFiltersAtom,
   ordersAtom,
   summarizeOrders,
 } from "../orders";
+import {
+  formatSeconds,
+  sumOrderSeconds,
+  typeSecondsAtom,
+} from "../settings";
 
 function MetricCard({ label, value }) {
   return (
@@ -70,16 +76,22 @@ export default function Stats() {
   const visibleOrders = useAtomValue(filteredOrdersAtom);
   const dateFrom = useAtomValue(dateFromAtom);
   const dateTo = useAtomValue(dateToAtom);
+  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const hasDateRange = Boolean(dateFrom || dateTo);
+  const typeSeconds = useAtomValue(typeSecondsAtom);
   const stats = useMemo(
     () => summarizeOrders(visibleOrders, { from: dateFrom, to: dateTo }),
     [visibleOrders, dateFrom, dateTo],
   );
+  const totalSeconds = useMemo(
+    () => sumOrderSeconds(visibleOrders, typeSeconds),
+    [visibleOrders, typeSeconds],
+  );
   const emptyMessage =
     orders.length === 0
       ? "Chưa có đơn hàng."
-      : hasDateRange
-        ? "Không có đơn trong khoảng ngày đã chọn."
+      : hasActiveFilters
+        ? "Không có đơn khớp với bộ lọc."
         : "Chưa có đơn hàng.";
 
   useEffect(() => {
@@ -102,7 +114,7 @@ export default function Stats() {
         </p>
 
         <div className="mt-8">
-          <DateRangeFilter />
+          <OrderFilters />
         </div>
 
         <section
@@ -111,7 +123,7 @@ export default function Stats() {
         >
           <MetricCard label="Đơn đã nhập" value={stats.total} />
           <MetricCard label="Mã CO" value={stats.uniqueCodes} />
-          <MetricCard label="Số giây" value="—" />
+          <MetricCard label="Số giây" value={formatSeconds(totalSeconds)} />
           <MetricCard label="Tổng CO" value="—" />
         </section>
 

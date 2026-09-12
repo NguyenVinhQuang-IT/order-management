@@ -46,7 +46,7 @@ export default function GlobalNav({ trailing }) {
   return (
     <header className="sticky top-0 z-20 h-11 bg-black text-white">
       <div className="mx-auto flex h-full max-w-[1440px] items-center justify-between px-[22px]">
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-3 tablet:gap-5">
           <Link
             to={authenticated ? "/" : "/login"}
             className="inline-flex cursor-pointer items-center gap-2 text-[12px] font-normal leading-none tracking-[-0.12px] text-white hover:text-body-muted focus-visible:outline-offset-[3px]"
@@ -57,9 +57,14 @@ export default function GlobalNav({ trailing }) {
             <span>Trang chủ</span>
           </Link>
           {isManager ? (
-            <NavLink to="/thong-ke" className={navLinkClass}>
-              Thống kê
-            </NavLink>
+            <>
+              <NavLink to="/thong-ke" className={navLinkClass}>
+                Thống kê
+              </NavLink>
+              <NavLink to="/thiet-lap" className={navLinkClass}>
+                Thiết lập
+              </NavLink>
+            </>
           ) : null}
         </div>
         {authenticated || trailing ? (

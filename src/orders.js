@@ -105,6 +105,50 @@ export function parseLocalDay(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+export function normalizeSearchQuery(raw) {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .replace(/đ/g, "d");
+}
+
+export function filterOrdersByQuery(orders, query) {
+  const list = Array.isArray(orders) ? orders : [];
+  const needle = normalizeSearchQuery(query);
+  if (!needle) return list;
+
+  return list.filter((order) => {
+    const haystack = [
+      order.code,
+      order.employeeId,
+      order.note,
+      getOrderTypeLabel(order.type),
+    ]
+      .map((value) => normalizeSearchQuery(value))
+      .join("\n");
+    return haystack.includes(needle);
+  });
+}
+
+export function filterOrdersByType(orders, typeId) {
+  const list = Array.isArray(orders) ? orders : [];
+  if (!typeId) return list;
+  return list.filter((order) => order.type === typeId);
+}
+
+export function filterOrders(orders, { from, to, query, type } = {}) {
+  return filterOrdersByType(
+    filterOrdersByQuery(filterOrdersByDateRange(orders, from, to), query),
+    type,
+  );
+}
+
+export function hasActiveOrderFilters({ from, to, query, type } = {}) {
+  return Boolean(from || to || normalizeSearchQuery(query) || type);
+}
+
 export function filterOrdersByDateRange(orders, from, to) {
   const list = Array.isArray(orders) ? orders : [];
   const startDate = parseLocalDay(from);
@@ -257,15 +301,54 @@ export function updateOrder(current, originalCode, originalType, patch) {
   return { orders: next, error: "" };
 }
 
+export function updateOrderSeconds(current, code, type, seconds) {
+  const index = current.findIndex(
+    (order) => order.code === code && order.type === type,
+  );
+  if (index === -1) {
+    return { orders: current, error: "Không tìm thấy đơn hàng." };
+  }
+  if (seconds != null && (typeof seconds !== "number" || !Number.isFinite(seconds))) {
+    return { orders: current, error: "Nhập số giây hợp lệ." };
+  }
+
+  const next = current.map((order, itemIndex) => {
+    if (itemIndex !== index) return order;
+    if (seconds == null) {
+      if (!("seconds" in order)) return order;
+      const { seconds: _ignored, ...rest } = order;
+      return rest;
+    }
+    return { ...order, seconds };
+  });
+  return { orders: next, error: "" };
+}
+
 export const ordersAtom = atomWithStorage(STORAGE_KEY, [], sessionJsonStorage, {
   getOnInit: true,
 });
 
 export const dateFromAtom = atom("");
 export const dateToAtom = atom("");
+export const searchQueryAtom = atom("");
+export const orderTypeFilterAtom = atom("");
 
 export const filteredOrdersAtom = atom((get) =>
-  filterOrdersByDateRange(get(ordersAtom), get(dateFromAtom), get(dateToAtom)),
+  filterOrders(get(ordersAtom), {
+    from: get(dateFromAtom),
+    to: get(dateToAtom),
+    query: get(searchQueryAtom),
+    type: get(orderTypeFilterAtom),
+  }),
+);
+
+export const hasActiveFiltersAtom = atom((get) =>
+  hasActiveOrderFilters({
+    from: get(dateFromAtom),
+    to: get(dateToAtom),
+    query: get(searchQueryAtom),
+    type: get(orderTypeFilterAtom),
+  }),
 );
 
 export const addOrdersAtom = atom(
@@ -298,6 +381,17 @@ export const updateOrderAtom = atom(
       originalType,
       patch,
     );
+    if (!result.error) {
+      set(ordersAtom, result.orders);
+    }
+    return result;
+  },
+);
+
+export const updateOrderSecondsAtom = atom(
+  null,
+  (get, set, code, type, seconds) => {
+    const result = updateOrderSeconds(get(ordersAtom), code, type, seconds);
     if (!result.error) {
       set(ordersAtom, result.orders);
     }
