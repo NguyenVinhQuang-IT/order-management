@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
+import { isManagerAtom, sessionAtom } from "../auth";
 import {
+  accessibleOrdersAtom,
+  addOrdersAtom,
+  allowsPdCodes,
   filterOrdersByQuery,
-  getOrderTypeLabel,
   ORDER_TYPES,
-  orderKey,
-  ordersAtom,
+  getOrderKind,
+  parseOrderLines,
+  recordKey,
   updateOrderSecondsAtom,
   updateOrdersSecondsAtom,
 } from "../orders";
 import {
   parseSecondsInput,
+  saveCodeSecondsAtom,
+  saveOneCodeSecondsAtom,
   saveOneTypeSecondsAtom,
 } from "../settings";
 import { useToast } from "./Toast";
@@ -19,6 +25,11 @@ const SCOPES = [
   { id: "all", label: "Tất cả mã đơn" },
   { id: "selected", label: "Chọn từng mã" },
 ];
+
+const PD_SCOPE = { id: "pd", label: "Mã PD mới" };
+
+const textareaClass =
+  "min-h-[120px] w-full resize-y rounded-[18px] border border-black/8 bg-canvas px-5 py-4 font-sans text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-ink outline-none tabular-nums focus:border-primary-focus focus:shadow-[0_0_0_2px_#0071e3]";
 
 const primaryButtonClass =
   "h-11 cursor-pointer rounded-full border-0 bg-primary px-[22px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-white hover:bg-primary-focus focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus active:scale-95 disabled:cursor-default disabled:opacity-[0.64]";
@@ -40,10 +51,15 @@ const textFieldClass =
 
 export default function SecondsEditDialog({ open, onClose, entry = null }) {
   const notify = useToast();
-  const orders = useAtomValue(ordersAtom);
+  const isManager = useAtomValue(isManagerAtom);
+  const session = useAtomValue(sessionAtom);
+  const orders = useAtomValue(accessibleOrdersAtom);
+  const addOrders = useSetAtom(addOrdersAtom);
   const saveTypeSeconds = useSetAtom(saveOneTypeSecondsAtom);
   const saveOrderSeconds = useSetAtom(updateOrderSecondsAtom);
   const saveOrdersSeconds = useSetAtom(updateOrdersSecondsAtom);
+  const saveCodeSeconds = useSetAtom(saveCodeSecondsAtom);
+  const saveOneCodeSeconds = useSetAtom(saveOneCodeSecondsAtom);
   const typeRef = useRef(null);
   const secondsRef = useRef(null);
   const onCloseRef = useRef(onClose);
@@ -54,6 +70,7 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
   const [query, setQuery] = useState("");
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [value, setValue] = useState("");
+  const [pdText, setPdText] = useState("");
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
@@ -63,6 +80,7 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
       setQuery("");
       setSelectedKeys(new Set());
       setValue("");
+      setPdText("");
       setFormError("");
       return undefined;
     }
@@ -73,20 +91,30 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
       setQuery("");
       setSelectedKeys(new Set());
       setValue(entry.type.seconds == null ? "" : String(entry.type.seconds));
+      setPdText("");
     } else if (entry?.kind === "order") {
       setOrderType(entry.order.type);
       setScope("selected");
       setQuery("");
-      setSelectedKeys(new Set([orderKey(entry.order.code, entry.order.type)]));
+      setSelectedKeys(new Set([recordKey(entry.order)]));
       setValue(
         entry.order.seconds == null ? "" : String(entry.order.seconds),
       );
+      setPdText("");
+    } else if (entry?.kind === "code") {
+      setOrderType(entry.type);
+      setScope("pd");
+      setQuery("");
+      setSelectedKeys(new Set());
+      setValue(entry.seconds == null ? "" : String(entry.seconds));
+      setPdText(entry.code);
     } else {
       setOrderType("");
       setScope("all");
       setQuery("");
       setSelectedKeys(new Set());
       setValue("");
+      setPdText("");
     }
     setFormError("");
 
@@ -123,7 +151,13 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
     [typeOrders, query],
   );
 
-  if (!open) return null;
+  const pdPreview = useMemo(() => parseOrderLines(pdText), [pdText]);
+  const pdAllowed = allowsPdCodes(orderType);
+  const scopes = pdAllowed
+    ? [SCOPES[0], PD_SCOPE]
+    : SCOPES;
+
+  if (!open || !isManager) return null;
 
   function toggleKey(key) {
     setSelectedKeys((current) => {
@@ -139,7 +173,7 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
     setSelectedKeys((current) => {
       const next = new Set(current);
       for (const order of visibleOrders) {
-        const key = orderKey(order.code, order.type);
+        const key = recordKey(order);
         if (selectAll) next.add(key);
         else next.delete(key);
       }
@@ -174,7 +208,7 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
           (order) =>
             typeof order.seconds === "number" && Number.isFinite(order.seconds),
         )
-        .map((order) => orderKey(order.code, order.type));
+        .map((order) => recordKey(order));
       if (overrideKeys.length) {
         const cleared = saveOrdersSeconds(overrideKeys, null);
         if (cleared.error) {
@@ -201,6 +235,7 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
         entry.order.code,
         entry.order.type,
         parsed.value,
+        getOrderKind(entry.order),
       );
       if (result.error) {
         setFormError(result.error);
@@ -208,6 +243,56 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
         return;
       }
       notify(`Đã lưu số giây cho ${entry.order.code}.`);
+      onClose();
+      return;
+    }
+
+    if (isEdit && entry?.kind === "code") {
+      const result = saveOneCodeSeconds(entry.code, entry.type, value);
+      if (result.error) {
+        setFormError(result.error);
+        notify(result.error, "error");
+        return;
+      }
+      notify(`Đã lưu số giây cho ${entry.code}.`);
+      onClose();
+      return;
+    }
+
+    if (scope === "pd") {
+      if (!pdAllowed) {
+        setFormError("Công đoạn này không dùng mã PD.");
+        notify("Công đoạn này không dùng mã PD.", "error");
+        return;
+      }
+      if (pdPreview.valid.length === 0) {
+        setFormError("Nhập ít nhất một mã PD, mỗi dòng một mã.");
+        notify("Nhập ít nhất một mã PD.", "error");
+        return;
+      }
+      const result = saveCodeSeconds(orderType, pdPreview.valid, value);
+      if (result.error) {
+        setFormError(result.error);
+        notify(result.error, "error");
+        return;
+      }
+      const created = addOrders(
+        result.codes,
+        session?.employeeId,
+        orderType,
+        "",
+        parsed.value,
+        "pd",
+      );
+      const parts = [];
+      if (created.added.length) {
+        parts.push(`Đã thêm ${created.added.length} mã PD.`);
+      }
+      if (created.duplicates.length) {
+        parts.push(`Đã cập nhật ${created.duplicates.length} mã đã có.`);
+      }
+      parts.push(`Đã lưu số giây cho ${result.codes.length} mã PD.`);
+      notify(parts.join(" "));
       onClose();
       return;
     }
@@ -276,9 +361,16 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
                 name="orderType"
                 value={orderType}
                 onChange={(event) => {
-                  setOrderType(event.target.value);
+                  const nextType = event.target.value;
+                  setOrderType(nextType);
                   setSelectedKeys(new Set());
                   setQuery("");
+                  if (
+                    (scope === "pd" && !allowsPdCodes(nextType)) ||
+                    (scope === "selected" && allowsPdCodes(nextType))
+                  ) {
+                    setScope("all");
+                  }
                   if (formError) setFormError("");
                 }}
                 required
@@ -303,18 +395,26 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
                 className={`${textFieldClass} bg-parchment`}
                 type="text"
                 value={
-                  scope === "all" ? "Tất cả mã đơn" : entry?.order?.code ?? ""
+                  scope === "all"
+                    ? "Tất cả mã đơn"
+                    : entry?.kind === "code"
+                      ? entry.code
+                      : entry?.order?.code ?? ""
                 }
                 readOnly
                 aria-readonly="true"
               />
             ) : (
               <div
-                className="grid h-11 grid-cols-2 gap-1 rounded-full border border-black/8 bg-canvas p-1"
+                className={`grid gap-1 border border-black/8 bg-canvas p-1 ${
+                  scopes.length === 3
+                    ? "grid-cols-1 auto-rows-[44px] rounded-[18px] tablet:h-11 tablet:grid-cols-3 tablet:auto-rows-auto tablet:rounded-full"
+                    : "h-11 grid-cols-2 rounded-full"
+                }`}
                 role="radiogroup"
                 aria-label="Áp dụng"
               >
-                {SCOPES.map((item) => {
+                {scopes.map((item) => {
                   const selected = scope === item.id;
                   return (
                     <button
@@ -322,7 +422,7 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
                       type="button"
                       role="radio"
                       aria-checked={selected}
-                      className={`h-full cursor-pointer rounded-full border-0 text-[15px] font-normal leading-none tracking-[-0.224px] ${
+                      className={`h-full cursor-pointer rounded-full border-0 px-1 text-[13px] font-normal leading-none tracking-[-0.224px] tablet:text-[15px] ${
                         selected
                           ? "bg-ink text-white"
                           : "bg-transparent text-ink-muted-80 hover:text-ink"
@@ -339,6 +439,35 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
               </div>
             )}
           </div>
+
+          {!isEdit && scope === "pd" && pdAllowed ? (
+            <label className="mb-6 flex flex-col gap-2">
+              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+                Mã PD
+              </span>
+              <textarea
+                className={textareaClass}
+                name="pdCodes"
+                value={pdText}
+                onChange={(event) => {
+                  setPdText(event.target.value);
+                  if (formError) setFormError("");
+                }}
+                spellCheck={false}
+                autoCapitalize="characters"
+                placeholder={"PD001\nPD002"}
+                aria-describedby="pd-help"
+              />
+              <span
+                id="pd-help"
+                className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48"
+              >
+                {pdPreview.valid.length
+                  ? `${pdPreview.valid.length} mã PD.`
+                  : "Mỗi dòng một mã PD."}
+              </span>
+            </label>
+          ) : null}
 
           {!isEdit && scope === "selected" && orderType ? (
             <div className="mb-6 flex flex-col gap-2">
@@ -389,7 +518,7 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
                       </li>
                     ) : (
                       visibleOrders.map((order, index) => {
-                        const key = orderKey(order.code, order.type);
+                        const key = recordKey(order);
                         const checked = selectedKeys.has(key);
                         return (
                           <li

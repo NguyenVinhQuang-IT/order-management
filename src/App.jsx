@@ -6,7 +6,6 @@ import Dashboard from "./pages/Dashboard";
 import EmployeeDetail from "./pages/EmployeeDetail";
 import Employees from "./pages/Employees";
 import Login from "./pages/Login";
-import Settings from "./pages/Settings";
 import Stats from "./pages/Stats";
 
 function PrivateRoute({ children }) {
@@ -58,14 +57,6 @@ export default function App() {
           element={
             <ManagerRoute>
               <Stats />
-            </ManagerRoute>
-          }
-        />
-        <Route
-          path="/thiet-lap"
-          element={
-            <ManagerRoute>
-              <Settings />
             </ManagerRoute>
           }
         />

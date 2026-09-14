@@ -5,17 +5,71 @@ import { sessionJsonStorage } from "./storage";
 
 const STORAGE_KEY = "om_orders";
 
+export const RECEIVE_ORDER_TYPE_ID = "xep-ban-nhan-don";
+export const PD_ORDER_TYPE_IDS = ["lam-don", "kiem-don"];
+
 export const ORDER_TYPES = [
-  { id: "xep-ban-nhan-don", label: "Xếp bản nhận đơn" },
+  { id: RECEIVE_ORDER_TYPE_ID, label: "Xếp bản nhận đơn" },
   { id: "kiem-don-voi-mau", label: "Kiểm đơn với mẫu" },
+  {
+    id: "phan-hinh-the-mau-tem-chuyen-in",
+    label: "Phân hình thể màu, phân số lượng tem chuyển in",
+  },
+  { id: "luu-thong-so-san-pham", label: "Lưu thông số sản phẩm" },
+  { id: "sap-xep-seka", label: "Sắp xếp seka" },
+  { id: "lam-don", label: "Làm đơn" },
+  { id: "kiem-don", label: "Kiểm đơn" },
+  { id: "gui-layout-don-san-xuat", label: "Gửi layout đơn sản xuất" },
+  { id: "lam-file-ban-nhua", label: "Làm file bản nhựa" },
+  { id: "lam-layout", label: "Làm layout" },
+  { id: "lam-don-mau", label: "Làm đơn mẫu" },
+  { id: "bu-don", label: "Bù đơn" },
+  { id: "ve-cat-hinh-giay", label: "Vẽ, cắt hình giày" },
+  { id: "luu-macro", label: "Lưu macro" },
+  { id: "upload-hinh-giay", label: "Upload hình giày lên hệ thống" },
+  { id: "viet-code", label: "Viết code" },
+  { id: "luu-size-doi-chieu", label: "Lưu size đối chiếu" },
+  { id: "luu-btw", label: "Lưu BTW" },
+  { id: "don-loi", label: "Đơn lỗi" },
 ];
 
 export function getOrderTypeLabel(typeId) {
   return ORDER_TYPES.find((type) => type.id === typeId)?.label ?? "—";
 }
 
+export function allowsPdCodes(typeId) {
+  return PD_ORDER_TYPE_IDS.includes(typeId);
+}
+
 export function orderKey(code, type) {
   return `${code}::${type}`;
+}
+
+export function getOrderKind(orderOrKind) {
+  if (orderOrKind && typeof orderOrKind === "object") {
+    return orderOrKind.kind === "pd" ? "pd" : "co";
+  }
+  return orderOrKind === "pd" ? "pd" : "co";
+}
+
+export function getOrderKindLabel(orderOrKind) {
+  return getOrderKind(orderOrKind) === "pd" ? "PD" : "CO";
+}
+
+export function recordKey(order) {
+  return `${getOrderKind(order)}::${order.code}::${order.type}`;
+}
+
+export function makeRecordKey(code, type, kind) {
+  return `${getOrderKind(kind)}::${code}::${type}`;
+}
+
+function sameRecord(order, code, type, kind) {
+  return (
+    order.code === code &&
+    order.type === type &&
+    getOrderKind(order) === getOrderKind(kind)
+  );
 }
 
 export function normalizeOrderCode(raw) {
@@ -42,17 +96,25 @@ export function normalizeNote(raw) {
   return String(raw ?? "").trim();
 }
 
-export function addOrders(current, codes, employeeId, type, note = "") {
-  const existing = new Set(
-    current.map((order) => orderKey(order.code, order.type)),
-  );
+export function addOrders(
+  current,
+  codes,
+  employeeId,
+  type,
+  note = "",
+  seconds = null,
+  kind = "co",
+) {
+  const codeKind = getOrderKind(kind);
+  const existing = new Set(current.map((order) => recordKey(order)));
   const added = [];
   const duplicates = [];
   const now = new Date().toISOString();
   const normalizedNote = normalizeNote(note);
+  const hasSeconds = typeof seconds === "number" && Number.isFinite(seconds);
 
   for (const code of codes) {
-    const key = orderKey(code, type);
+    const key = makeRecordKey(code, type, codeKind);
     if (existing.has(key)) {
       duplicates.push(code);
       continue;
@@ -61,26 +123,34 @@ export function addOrders(current, codes, employeeId, type, note = "") {
     added.push({
       code,
       type,
+      kind: codeKind,
       employeeId,
       note: normalizedNote,
       createdAt: now,
+      ...(hasSeconds ? { seconds } : {}),
     });
   }
 
-  return { orders: [...added, ...current], added, duplicates };
+  let next = [...added, ...current];
+  if (hasSeconds && duplicates.length) {
+    const dupKeys = new Set(
+      duplicates.map((code) => makeRecordKey(code, type, codeKind)),
+    );
+    next = next.map((order) =>
+      dupKeys.has(recordKey(order)) ? { ...order, seconds } : order,
+    );
+  }
+
+  return { orders: next, added, duplicates };
 }
 
-export function removeOrder(current, code, type) {
-  return current.filter(
-    (order) => !(order.code === code && order.type === type),
-  );
+export function removeOrder(current, code, type, kind = "co") {
+  return current.filter((order) => !sameRecord(order, code, type, kind));
 }
 
 export function removeOrdersByKeys(current, keys) {
   const keySet = keys instanceof Set ? keys : new Set(keys);
-  return current.filter(
-    (order) => !keySet.has(orderKey(order.code, order.type)),
-  );
+  return current.filter((order) => !keySet.has(recordKey(order)));
 }
 
 function padDay(value) {
@@ -126,6 +196,7 @@ export function filterOrdersByQuery(orders, query) {
       order.employeeId,
       order.note,
       getOrderTypeLabel(order.type),
+      getOrderKind(order) === "pd" ? "ma pd" : "ma co",
     ]
       .map((value) => normalizeSearchQuery(value))
       .join("\n");
@@ -139,21 +210,30 @@ export function filterOrdersByType(orders, typeId) {
   return list.filter((order) => order.type === typeId);
 }
 
+export function filterOrdersByKind(orders, kind) {
+  const list = Array.isArray(orders) ? orders : [];
+  if (!kind) return list;
+  return list.filter((order) => getOrderKind(order) === kind);
+}
+
 export function filterOrdersByEmployee(orders, employeeId) {
   const list = Array.isArray(orders) ? orders : [];
   if (!employeeId) return [];
   return list.filter((order) => order.employeeId === employeeId);
 }
 
-export function filterOrders(orders, { from, to, query, type } = {}) {
-  return filterOrdersByType(
-    filterOrdersByQuery(filterOrdersByDateRange(orders, from, to), query),
-    type,
+export function filterOrders(orders, { from, to, query, type, kind } = {}) {
+  return filterOrdersByKind(
+    filterOrdersByType(
+      filterOrdersByQuery(filterOrdersByDateRange(orders, from, to), query),
+      type,
+    ),
+    kind,
   );
 }
 
-export function hasActiveOrderFilters({ from, to, query, type } = {}) {
-  return Boolean(from || to || normalizeSearchQuery(query) || type);
+export function hasActiveOrderFilters({ from, to, query, type, kind } = {}) {
+  return Boolean(from || to || normalizeSearchQuery(query) || type || kind);
 }
 
 export function filterOrdersByDateRange(orders, from, to) {
@@ -247,13 +327,15 @@ function buildDaySeries(dayTypeCounts, from, to) {
 
 export function summarizeOrders(orders, range = {}) {
   const list = Array.isArray(orders) ? orders : [];
-  const uniqueCodes = new Set();
+  const uniqueCoCodes = new Set();
+  const uniquePdCodes = new Set();
   const typeCounts = Object.fromEntries(ORDER_TYPES.map((type) => [type.id, 0]));
   const employeeStats = new Map();
   const dayTypeCounts = new Map();
 
   for (const order of list) {
-    uniqueCodes.add(order.code);
+    if (getOrderKind(order) === "pd") uniquePdCodes.add(order.code);
+    else uniqueCoCodes.add(order.code);
     if (order.type in typeCounts) {
       typeCounts[order.type] += 1;
     }
@@ -263,12 +345,16 @@ export function summarizeOrders(orders, range = {}) {
       bucket = {
         count: 0,
         codes: new Set(),
+        coCodes: new Set(),
+        pdCodes: new Set(),
         byType: Object.fromEntries(ORDER_TYPES.map((type) => [type.id, 0])),
       };
       employeeStats.set(employeeId, bucket);
     }
     bucket.count += 1;
     bucket.codes.add(order.code);
+    if (getOrderKind(order) === "pd") bucket.pdCodes.add(order.code);
+    else bucket.coCodes.add(order.code);
     if (order.type in bucket.byType) {
       bucket.byType[order.type] += 1;
     }
@@ -290,7 +376,9 @@ export function summarizeOrders(orders, range = {}) {
 
   return {
     total: list.length,
-    uniqueCodes: uniqueCodes.size,
+    uniqueCodes: uniqueCoCodes.size,
+    uniqueCoCodes: uniqueCoCodes.size,
+    uniquePdCodes: uniquePdCodes.size,
     byType: ORDER_TYPES.map((type) => ({
       id: type.id,
       label: type.label,
@@ -302,6 +390,8 @@ export function summarizeOrders(orders, range = {}) {
         employeeId,
         count: bucket.count,
         uniqueCodes: bucket.codes.size,
+        uniqueCoCodes: bucket.coCodes.size,
+        uniquePdCodes: bucket.pdCodes.size,
         byType: ORDER_TYPES.map((type) => ({
           id: type.id,
           label: type.label,
@@ -313,8 +403,9 @@ export function summarizeOrders(orders, range = {}) {
 }
 
 export function updateOrder(current, originalCode, originalType, patch) {
-  const index = current.findIndex(
-    (order) => order.code === originalCode && order.type === originalType,
+  const kind = getOrderKind(patch.kind);
+  const index = current.findIndex((order) =>
+    sameRecord(order, originalCode, originalType, kind),
   );
   if (index === -1) {
     return { orders: current, error: "Không tìm thấy đơn hàng." };
@@ -331,26 +422,38 @@ export function updateOrder(current, originalCode, originalType, patch) {
     return { orders: current, error: "Chọn công đoạn." };
   }
 
-  const key = orderKey(code, type);
+  const key = makeRecordKey(code, type, kind);
   const duplicate = current.some(
-    (order, itemIndex) =>
-      itemIndex !== index && orderKey(order.code, order.type) === key,
+    (order, itemIndex) => itemIndex !== index && recordKey(order) === key,
   );
   if (duplicate) {
-    return { orders: current, error: "Mã đơn này đã có với cùng công đoạn." };
+    return {
+      orders: current,
+      error:
+        kind === "pd"
+          ? "Mã PD này đã có với cùng công đoạn."
+          : "Mã CO này đã có với cùng công đoạn.",
+    };
   }
 
   const next = current.map((order, itemIndex) =>
     itemIndex === index
-      ? { ...order, code, type, note, updatedAt: new Date().toISOString() }
+      ? {
+          ...order,
+          code,
+          type,
+          kind,
+          note,
+          updatedAt: new Date().toISOString(),
+        }
       : order,
   );
   return { orders: next, error: "" };
 }
 
-export function updateOrderSeconds(current, code, type, seconds) {
-  const index = current.findIndex(
-    (order) => order.code === code && order.type === type,
+export function updateOrderSeconds(current, code, type, seconds, kind = "co") {
+  const index = current.findIndex((order) =>
+    sameRecord(order, code, type, kind),
   );
   if (index === -1) {
     return { orders: current, error: "Không tìm thấy đơn hàng." };
@@ -382,7 +485,7 @@ export function updateOrdersSeconds(current, keys, seconds) {
 
   let found = 0;
   const next = current.map((order) => {
-    if (!keySet.has(orderKey(order.code, order.type))) return order;
+    if (!keySet.has(recordKey(order))) return order;
     found += 1;
     if (seconds == null) {
       if (!("seconds" in order)) return order;
@@ -405,6 +508,7 @@ export const dateFromAtom = atom("");
 export const dateToAtom = atom("");
 export const searchQueryAtom = atom("");
 export const orderTypeFilterAtom = atom("");
+export const orderKindFilterAtom = atom("");
 
 export const accessibleOrdersAtom = atom((get) => {
   const orders = get(ordersAtom);
@@ -420,6 +524,7 @@ export const filteredOrdersAtom = atom((get) =>
     to: get(dateToAtom),
     query: get(searchQueryAtom),
     type: get(orderTypeFilterAtom),
+    kind: get(orderKindFilterAtom),
   }),
 );
 
@@ -429,6 +534,7 @@ export const hasActiveFiltersAtom = atom((get) =>
     to: get(dateToAtom),
     query: get(searchQueryAtom),
     type: get(orderTypeFilterAtom),
+    kind: get(orderKindFilterAtom),
   }),
 );
 
@@ -440,21 +546,29 @@ function ownsOrder(session, order) {
 
 export const addOrdersAtom = atom(
   null,
-  (get, set, codes, employeeId, type, note = "") => {
+  (get, set, codes, employeeId, type, note = "", seconds = null, kind = "co") => {
     const session = get(sessionAtom);
     const actorId = session?.employeeId || employeeId;
-    const result = addOrders(get(ordersAtom), codes, actorId, type, note);
+    const result = addOrders(
+      get(ordersAtom),
+      codes,
+      actorId,
+      type,
+      note,
+      seconds,
+      kind,
+    );
     set(ordersAtom, result.orders);
     return result;
   },
 );
 
-export const removeOrderAtom = atom(null, (get, set, code, type) => {
+export const removeOrderAtom = atom(null, (get, set, code, type, kind = "co") => {
   const session = get(sessionAtom);
   const current = get(ordersAtom);
-  const order = current.find((item) => item.code === code && item.type === type);
+  const order = current.find((item) => sameRecord(item, code, type, kind));
   if (!ownsOrder(session, order)) return current;
-  const next = removeOrder(current, code, type);
+  const next = removeOrder(current, code, type, kind);
   set(ordersAtom, next);
   return next;
 });
@@ -466,9 +580,7 @@ export const removeOrdersByKeysAtom = atom(null, (get, set, keys) => {
     session?.role === "manager"
       ? keys
       : [...keys].filter((key) => {
-          const order = current.find(
-            (item) => orderKey(item.code, item.type) === key,
-          );
+          const order = current.find((item) => recordKey(item) === key);
           return ownsOrder(session, order);
         });
   const next = removeOrdersByKeys(current, allowed);
@@ -481,8 +593,8 @@ export const updateOrderAtom = atom(
   (get, set, originalCode, originalType, patch) => {
     const session = get(sessionAtom);
     const current = get(ordersAtom);
-    const existing = current.find(
-      (item) => item.code === originalCode && item.type === originalType,
+    const existing = current.find((item) =>
+      sameRecord(item, originalCode, originalType, patch?.kind),
     );
     if (!ownsOrder(session, existing)) {
       return { orders: current, error: "Không thể sửa đơn của người khác." };
@@ -497,8 +609,14 @@ export const updateOrderAtom = atom(
 
 export const updateOrderSecondsAtom = atom(
   null,
-  (get, set, code, type, seconds) => {
-    const result = updateOrderSeconds(get(ordersAtom), code, type, seconds);
+  (get, set, code, type, seconds, kind = "co") => {
+    const result = updateOrderSeconds(
+      get(ordersAtom),
+      code,
+      type,
+      seconds,
+      kind,
+    );
     if (!result.error) {
       set(ordersAtom, result.orders);
     }

@@ -1,9 +1,15 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { ORDER_TYPES } from "./orders";
+import {
+  allowsPdCodes,
+  normalizeOrderCode,
+  ORDER_TYPES,
+  orderKey,
+} from "./orders";
 import { localJsonStorage } from "./storage";
 
 const STORAGE_KEY = "om_type_seconds";
+const CODE_SECONDS_KEY = "om_code_seconds";
 export const MAX_SECONDS = 99999;
 
 export function formatSeconds(value) {
@@ -54,19 +60,71 @@ export function getTypeSeconds(settings, typeId) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-export function getOrderSeconds(order, typeSettings) {
+export function codeSecondsKey(code, type) {
+  return orderKey(normalizeOrderCode(code), type);
+}
+
+export function parseCodeSecondsKey(key) {
+  const text = String(key ?? "");
+  const sep = text.lastIndexOf("::");
+  if (sep <= 0) return null;
+  const code = normalizeOrderCode(text.slice(0, sep));
+  const type = text.slice(sep + 2);
+  if (!code || !allowsPdCodes(type)) return null;
+  return { code, type };
+}
+
+export function normalizeCodeSecondsMap(raw) {
+  const next = {};
+  if (!raw || typeof raw !== "object") return next;
+  for (const [key, rawValue] of Object.entries(raw)) {
+    const parsedKey = parseCodeSecondsKey(key);
+    if (!parsedKey) continue;
+    const parsed = parseSecondsInput(rawValue);
+    if (parsed.error || parsed.value == null) continue;
+    next[codeSecondsKey(parsedKey.code, parsedKey.type)] = parsed.value;
+  }
+  return next;
+}
+
+export function getCodeSeconds(settings, code, type) {
+  if (!code || !type) return null;
+  const value = settings?.[codeSecondsKey(code, type)];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function listCodeSeconds(settings) {
+  return Object.entries(settings ?? {})
+    .map(([key, seconds]) => {
+      const parsed = parseCodeSecondsKey(key);
+      if (!parsed || typeof seconds !== "number" || !Number.isFinite(seconds)) {
+        return null;
+      }
+      return { key, ...parsed, seconds };
+    })
+    .filter(Boolean)
+    .sort(
+      (left, right) =>
+        left.code.localeCompare(right.code, "vi") ||
+        left.type.localeCompare(right.type),
+    );
+}
+
+export function getOrderSeconds(order, typeSettings, codeSettings) {
   if (typeof order?.seconds === "number" && Number.isFinite(order.seconds)) {
     return order.seconds;
   }
+  const fromCode = getCodeSeconds(codeSettings, order?.code, order?.type);
+  if (fromCode != null) return fromCode;
   return getTypeSeconds(typeSettings, order?.type);
 }
 
-export function sumOrderSeconds(orders, settings) {
+export function sumOrderSeconds(orders, typeSettings, codeSettings) {
   const list = Array.isArray(orders) ? orders : [];
   let total = 0;
   let counted = 0;
   for (const order of list) {
-    const seconds = getOrderSeconds(order, settings);
+    const seconds = getOrderSeconds(order, typeSettings, codeSettings);
     if (seconds == null) continue;
     total += seconds;
     counted += 1;
@@ -74,7 +132,7 @@ export function sumOrderSeconds(orders, settings) {
   return counted === 0 ? null : total;
 }
 
-export function sumSecondsByType(orders, settings) {
+export function sumSecondsByType(orders, typeSettings, codeSettings) {
   const list = Array.isArray(orders) ? orders : [];
   const buckets = Object.fromEntries(
     ORDER_TYPES.map((type) => [type.id, { count: 0, seconds: 0, counted: 0 }]),
@@ -84,7 +142,7 @@ export function sumSecondsByType(orders, settings) {
     const bucket = buckets[order.type];
     if (!bucket) continue;
     bucket.count += 1;
-    const seconds = getOrderSeconds(order, settings);
+    const seconds = getOrderSeconds(order, typeSettings, codeSettings);
     if (seconds == null) continue;
     bucket.seconds += seconds;
     bucket.counted += 1;
@@ -142,5 +200,73 @@ export const saveOneTypeSecondsAtom = atom(null, (get, set, typeId, raw) => {
     next[typeId] = parsed.value;
   }
   set(secondsSettingsAtom, next);
+  return { error: "", value: parsed.value };
+});
+
+export const codeSecondsSettingsAtom = atomWithStorage(
+  CODE_SECONDS_KEY,
+  {},
+  localJsonStorage,
+  { getOnInit: true },
+);
+
+export const codeSecondsAtom = atom((get) =>
+  normalizeCodeSecondsMap(get(codeSecondsSettingsAtom)),
+);
+
+export const saveCodeSecondsAtom = atom(null, (get, set, typeId, codes, raw) => {
+  if (!allowsPdCodes(typeId)) {
+    return { error: "Công đoạn này không dùng mã PD." };
+  }
+  const parsed = parseSecondsInput(raw);
+  if (parsed.error) {
+    return { error: parsed.error };
+  }
+  if (parsed.value == null) {
+    return { error: "Nhập thời gian hoàn thành." };
+  }
+
+  const unique = [];
+  const seen = new Set();
+  for (const item of Array.isArray(codes) ? codes : []) {
+    const code = normalizeOrderCode(item);
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    unique.push(code);
+  }
+  if (!unique.length) {
+    return { error: "Nhập ít nhất một mã PD." };
+  }
+
+  const current = normalizeCodeSecondsMap(get(codeSecondsSettingsAtom));
+  const next = { ...current };
+  for (const code of unique) {
+    next[codeSecondsKey(code, typeId)] = parsed.value;
+  }
+  set(codeSecondsSettingsAtom, next);
+  return { error: "", codes: unique, value: parsed.value };
+});
+
+export const saveOneCodeSecondsAtom = atom(null, (get, set, code, typeId, raw) => {
+  if (!allowsPdCodes(typeId)) {
+    return { error: "Công đoạn này không dùng mã PD." };
+  }
+  const normalized = normalizeOrderCode(code);
+  if (!normalized) {
+    return { error: "Nhập mã PD." };
+  }
+  const parsed = parseSecondsInput(raw);
+  if (parsed.error) {
+    return { error: parsed.error };
+  }
+  const current = normalizeCodeSecondsMap(get(codeSecondsSettingsAtom));
+  const next = { ...current };
+  const key = codeSecondsKey(normalized, typeId);
+  if (parsed.value == null) {
+    delete next[key];
+  } else {
+    next[key] = parsed.value;
+  }
+  set(codeSecondsSettingsAtom, next);
   return { error: "", value: parsed.value };
 });

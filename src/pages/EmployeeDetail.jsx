@@ -19,12 +19,14 @@ import {
   filteredOrdersAtom,
   getOrderTypeLabel,
   hasActiveFiltersAtom,
-  orderKey,
+  recordKey,
   ordersAtom,
   summarizeOrders,
 } from "../orders";
 import {
+  codeSecondsAtom,
   formatSeconds,
+  getOrderSeconds,
   sumSecondsByType,
   typeSecondsAtom,
 } from "../settings";
@@ -36,7 +38,7 @@ const textLinkClass =
   "cursor-pointer border-0 bg-transparent p-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-primary no-underline";
 
 const orderListCols =
-  "desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)]";
+  "desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.5fr)_minmax(0,1fr)_minmax(0,1fr)]";
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -75,6 +77,7 @@ export default function EmployeeDetail() {
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const hasDateRange = Boolean(dateFrom || dateTo);
   const typeSeconds = useAtomValue(typeSecondsAtom);
+  const codeSeconds = useAtomValue(codeSecondsAtom);
 
   const theirs = useMemo(
     () => visibleOrders.filter((order) => order.employeeId === employeeId),
@@ -89,8 +92,8 @@ export default function EmployeeDetail() {
     [theirs, dateFrom, dateTo],
   );
   const secondsByType = useMemo(
-    () => sumSecondsByType(theirs, typeSeconds),
-    [theirs, typeSeconds],
+    () => sumSecondsByType(theirs, typeSeconds, codeSeconds),
+    [theirs, typeSeconds, codeSeconds],
   );
 
   const known = Boolean(account || allTheirs.length);
@@ -133,22 +136,16 @@ export default function EmployeeDetail() {
             </div>
 
             <section
-              className="mt-8 grid grid-cols-1 gap-4 tablet:grid-cols-2 desk:grid-cols-3"
+              className="mt-8 grid grid-cols-1 gap-4 tablet:grid-cols-2 desk:grid-cols-4"
               aria-label="Chỉ số"
             >
               <MetricCard label="Đơn đã nhập" value={stats.total} />
-              <MetricCard label="Mã CO" value={stats.uniqueCodes} />
+              <MetricCard label="Mã CO" value={stats.uniqueCoCodes} />
+              <MetricCard label="Mã PD" value={stats.uniquePdCodes} />
               <MetricCard
                 label="Tổng số giây"
                 value={formatSeconds(secondsByType.total)}
               />
-              {secondsByType.items.map((item) => (
-                <MetricCard
-                  key={item.id}
-                  label={item.label}
-                  value={formatSeconds(item.seconds)}
-                />
-              ))}
             </section>
 
             <section
@@ -244,14 +241,15 @@ export default function EmployeeDetail() {
                   <li
                     className={`hidden border-b border-hairline px-6 py-3 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink-muted-48 desk:grid ${orderListCols} desk:gap-4`}
                   >
-                    <span>Mã đơn</span>
+                    <span>Mã</span>
                     <span>Công đoạn</span>
+                    <span>Giây</span>
                     <span>Thời gian</span>
                     <span>Ghi chú</span>
                   </li>
                   {theirs.map((order, index) => (
                     <li
-                      key={orderKey(order.code, order.type)}
+                      key={recordKey(order)}
                       className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center desk:gap-4 ${
                         index < theirs.length - 1 ? "border-b border-hairline" : ""
                       }`}
@@ -261,6 +259,12 @@ export default function EmployeeDetail() {
                       </span>
                       <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
                         {getOrderTypeLabel(order.type)}
+                      </span>
+                      <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                        <span className="desk:hidden">Giây </span>
+                        {formatSeconds(
+                          getOrderSeconds(order, typeSeconds, codeSeconds),
+                        )}
                       </span>
                       <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
                         {formatEnteredAt(order.updatedAt || order.createdAt)}

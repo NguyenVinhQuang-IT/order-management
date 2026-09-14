@@ -64,9 +64,6 @@ export default function GlobalNav({ trailing }) {
               <NavLink to="/nhan-vien" className={navLinkClass}>
                 Nhân viên
               </NavLink>
-              <NavLink to="/thiet-lap" className={navLinkClass}>
-                Thiết lập
-              </NavLink>
             </>
           ) : null}
         </div>

@@ -19,6 +19,7 @@ import {
   summarizeOrders,
 } from "../orders";
 import {
+  codeSecondsAtom,
   formatSeconds,
   sumOrderSeconds,
   sumSecondsByType,
@@ -48,13 +49,14 @@ export default function Stats() {
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
   const hasDateRange = Boolean(dateFrom || dateTo);
   const typeSeconds = useAtomValue(typeSecondsAtom);
+  const codeSeconds = useAtomValue(codeSecondsAtom);
   const stats = useMemo(
     () => summarizeOrders(visibleOrders, { from: dateFrom, to: dateTo }),
     [visibleOrders, dateFrom, dateTo],
   );
   const secondsByType = useMemo(
-    () => sumSecondsByType(visibleOrders, typeSeconds),
-    [visibleOrders, typeSeconds],
+    () => sumSecondsByType(visibleOrders, typeSeconds, codeSeconds),
+    [visibleOrders, typeSeconds, codeSeconds],
   );
   const employeeRows = useMemo(
     () =>
@@ -67,10 +69,10 @@ export default function Stats() {
           return {
             ...item,
             name: getEmployeeName(item.employeeId),
-            seconds: sumOrderSeconds(theirs, typeSeconds),
+            seconds: sumOrderSeconds(theirs, typeSeconds, codeSeconds),
           };
         }),
-    [stats.byEmployee, visibleOrders, typeSeconds],
+    [stats.byEmployee, visibleOrders, typeSeconds, codeSeconds],
   );
   const directoryRows = useMemo(() => {
     const byId = new Map(
@@ -112,22 +114,16 @@ export default function Stats() {
         </div>
 
         <section
-          className="mt-8 grid grid-cols-1 gap-4 tablet:grid-cols-2 desk:grid-cols-3"
+          className="mt-8 grid grid-cols-1 gap-4 tablet:grid-cols-2 desk:grid-cols-4"
           aria-label="Chỉ số"
         >
           <MetricCard label="Đơn đã nhập" value={stats.total} />
-          <MetricCard label="Mã CO" value={stats.uniqueCodes} />
+          <MetricCard label="Mã CO" value={stats.uniqueCoCodes} />
+          <MetricCard label="Mã PD" value={stats.uniquePdCodes} />
           <MetricCard
             label="Tổng số giây"
             value={formatSeconds(secondsByType.total)}
           />
-          {secondsByType.items.map((item) => (
-            <MetricCard
-              key={item.id}
-              label={item.label}
-              value={formatSeconds(item.seconds)}
-            />
-          ))}
         </section>
 
         <section

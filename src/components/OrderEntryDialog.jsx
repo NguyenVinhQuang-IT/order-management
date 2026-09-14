@@ -3,6 +3,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { sessionAtom } from "../auth";
 import {
   addOrdersAtom,
+  getOrderKind,
   normalizeOrderCode,
   ORDER_TYPES,
   parseOrderLines,
@@ -95,6 +96,7 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
         code,
         type: orderType,
         note,
+        kind: getOrderKind(order),
       });
       if (result.error) {
         setFormError(result.error);
@@ -183,7 +185,7 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
           {isEdit ? (
             <label className="flex flex-col gap-2">
               <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
-                Mã đơn
+                {getOrderKind(order) === "pd" ? "Mã PD" : "Mã CO"}
               </span>
               <input
                 className={`${textFieldClass} tabular-nums`}
@@ -197,7 +199,9 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
                 onKeyDown={handleKeyDown}
                 spellCheck={false}
                 autoCapitalize="characters"
-                placeholder="CO26090405992"
+                placeholder={
+                  getOrderKind(order) === "pd" ? "PD001" : "CO26090405992"
+                }
               />
             </label>
           ) : (

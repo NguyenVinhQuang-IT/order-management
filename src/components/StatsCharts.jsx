@@ -2,7 +2,27 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { employeePath } from "../auth";
 
-const CHART_COLORS = ["#0066cc", "#1d1d1f", "#6e6e73", "#2997ff"];
+const CHART_COLORS = [
+  "#0066cc",
+  "#1d1d1f",
+  "#6e6e73",
+  "#2997ff",
+  "#bf4800",
+  "#0071e3",
+  "#515154",
+  "#64d2ff",
+  "#8e8e93",
+  "#147ce5",
+  "#424245",
+  "#5ac8fa",
+  "#86868b",
+  "#0a84ff",
+  "#636366",
+  "#7dc1ff",
+  "#aeaeb2",
+  "#409cff",
+  "#3a3a3c",
+];
 
 function niceMax(value) {
   if (value <= 0) return 4;
@@ -11,6 +31,25 @@ function niceMax(value) {
   const nice =
     normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
   return nice * magnitude;
+}
+
+function typeColor(index) {
+  return CHART_COLORS[index % CHART_COLORS.length];
+}
+
+function colorForType(typeId, types) {
+  const index = types.findIndex((type) => type.id === typeId);
+  return typeColor(index < 0 ? 0 : index);
+}
+
+function typesWithCounts(items) {
+  const source = items[0]?.byType?.length ? items[0].byType : [];
+  return source.filter((type) =>
+    items.some(
+      (item) =>
+        (item.byType?.find((entry) => entry.id === type.id)?.count ?? 0) > 0,
+    ),
+  );
 }
 
 export function ChartCard({ title, children, className = "" }) {
@@ -34,13 +73,13 @@ export function DonutChart({ items, total }) {
   const stroke = 14;
   const circumference = 2 * Math.PI * radius;
 
+  const visible = items.filter((item) => item.count > 0);
   const arcs = [];
   let offset = 0;
   items.forEach((item, index) => {
-    const color = CHART_COLORS[index % CHART_COLORS.length];
     if (total > 0 && item.count > 0) {
       const length = (item.count / total) * circumference;
-      arcs.push({ id: item.id, length, offset, color });
+      arcs.push({ id: item.id, length, offset, color: typeColor(index) });
       offset += length;
     }
   });
@@ -99,12 +138,12 @@ export function DonutChart({ items, total }) {
         </text>
       </svg>
       <ul className="m-0 flex w-full list-none flex-col gap-2 p-0">
-        {items.map((item, index) => (
+        {visible.map((item) => (
           <li key={item.id} className="flex items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink">
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                style={{ backgroundColor: colorForType(item.id, items) }}
                 aria-hidden="true"
               />
               <span className="truncate">{item.label}</span>
@@ -121,10 +160,12 @@ export function DonutChart({ items, total }) {
 
 export function DayBarChart({ items }) {
   const [tip, setTip] = useState(null);
-  const types = items[0]?.byType?.length
+  const allTypes = items[0]?.byType?.length
     ? items[0].byType
     : [{ id: "all", label: "Đơn", count: 0 }];
-  const typeCount = Math.max(types.length, 1);
+  const types = typesWithCounts(items);
+  const visibleTypes = types.length ? types : allTypes;
+  const typeCount = Math.max(visibleTypes.length, 1);
   const width = Math.max(420, items.length * (18 * typeCount + 16) + 40);
   const height = 220;
   const padL = 28;
@@ -197,9 +238,12 @@ export function DayBarChart({ items }) {
           })}
           {items.map((item, index) => {
             const groupX = padL + groupGap + index * (groupW + groupGap);
-            const series = item.byType?.length
-              ? item.byType
-              : [{ id: "all", label: "Đơn", count: item.count }];
+            const series = visibleTypes.map((type) => ({
+              ...type,
+              count:
+                item.byType?.find((entry) => entry.id === type.id)?.count ??
+                (type.id === "all" ? item.count : 0),
+            }));
             const barsWidth = typeCount * barW + (typeCount - 1) * barGap;
             const barOrigin = groupX + Math.max(0, (groupW - barsWidth) / 2);
             return (
@@ -210,7 +254,7 @@ export function DayBarChart({ items }) {
                   const y = padT + plotH - heightValue;
                   if (type.count <= 0) return null;
                   const typeLabel =
-                    type.label || types[typeIndex]?.label || "Đơn";
+                    type.label || visibleTypes[typeIndex]?.label || "Đơn";
                   return (
                     <rect
                       key={type.id}
@@ -219,7 +263,7 @@ export function DayBarChart({ items }) {
                       width={barW}
                       height={heightValue}
                       rx={5}
-                      fill={CHART_COLORS[typeIndex % CHART_COLORS.length]}
+                      fill={colorForType(type.id, allTypes)}
                       className="cursor-pointer"
                       onMouseEnter={(event) =>
                         showTip(event, item.label, typeLabel, type.count)
@@ -259,7 +303,7 @@ export function DayBarChart({ items }) {
         ) : null}
       </div>
       <ul className="mt-4 m-0 flex list-none flex-wrap gap-x-5 gap-y-2 p-0">
-        {types.map((type, index) => (
+        {visibleTypes.map((type) => (
           <li
             key={type.id}
             className="flex items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink"
@@ -267,7 +311,7 @@ export function DayBarChart({ items }) {
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-full"
               style={{
-                backgroundColor: CHART_COLORS[index % CHART_COLORS.length],
+                backgroundColor: colorForType(type.id, allTypes),
               }}
               aria-hidden="true"
             />
@@ -279,10 +323,9 @@ export function DayBarChart({ items }) {
   );
 }
 
-function EmployeeStageBars({ item, max }) {
-  const series = item.byType?.length
-    ? item.byType
-    : [{ id: "all", count: item.count }];
+function EmployeeStageBars({ item, max, types }) {
+  const series = (item.byType?.length ? item.byType : [{ id: "all", count: item.count }])
+    .filter((type) => type.count > 0);
 
   return (
     <div className="flex min-w-0 items-start gap-3">
@@ -295,7 +338,7 @@ function EmployeeStageBars({ item, max }) {
         </span>
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        {series.map((type, index) => {
+        {(series.length ? series : [{ id: "empty", count: 0 }]).map((type) => {
           const percent = max > 0 ? (type.count / max) * 100 : 0;
           return (
             <div key={type.id} className="flex items-center gap-3">
@@ -305,8 +348,7 @@ function EmployeeStageBars({ item, max }) {
                     className="h-2.5 rounded-full"
                     style={{
                       width: `${percent}%`,
-                      backgroundColor:
-                        CHART_COLORS[index % CHART_COLORS.length],
+                      backgroundColor: colorForType(type.id, types),
                     }}
                   />
                 ) : null}
@@ -323,7 +365,8 @@ function EmployeeStageBars({ item, max }) {
 }
 
 export function EmployeeBarChart({ items, empty = "Chưa có dữ liệu." }) {
-  const types = items[0]?.byType?.length ? items[0].byType : [];
+  const allTypes = items[0]?.byType?.length ? items[0].byType : [];
+  const types = typesWithCounts(items);
   const max = Math.max(
     ...items.flatMap((item) =>
       item.byType?.length
@@ -351,17 +394,17 @@ export function EmployeeBarChart({ items, empty = "Chưa có dữ liệu." }) {
                 to={employeePath(item.employeeId)}
                 className="block no-underline hover:opacity-80"
               >
-                <EmployeeStageBars item={item} max={max} />
+                <EmployeeStageBars item={item} max={max} types={allTypes} />
               </Link>
             ) : (
-              <EmployeeStageBars item={item} max={max} />
+              <EmployeeStageBars item={item} max={max} types={allTypes} />
             )}
           </li>
         ))}
       </ul>
       {types.length ? (
         <ul className="mt-4 m-0 flex list-none flex-wrap gap-x-5 gap-y-2 p-0">
-          {types.map((type, index) => (
+          {types.map((type) => (
             <li
               key={type.id}
               className="flex items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink"
@@ -369,7 +412,7 @@ export function EmployeeBarChart({ items, empty = "Chưa có dữ liệu." }) {
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
                 style={{
-                  backgroundColor: CHART_COLORS[index % CHART_COLORS.length],
+                  backgroundColor: colorForType(type.id, allTypes),
                 }}
                 aria-hidden="true"
               />

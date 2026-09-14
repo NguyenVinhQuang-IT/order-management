@@ -4,6 +4,7 @@ import {
   dateToAtom,
   hasActiveFiltersAtom,
   ORDER_TYPES,
+  orderKindFilterAtom,
   orderTypeFilterAtom,
   searchQueryAtom,
 } from "../orders";
@@ -19,6 +20,7 @@ const selectClass = `${fieldClass} appearance-none bg-[length:12px_8px] bg-[posi
 export default function OrderFilters() {
   const [query, setQuery] = useAtom(searchQueryAtom);
   const [type, setType] = useAtom(orderTypeFilterAtom);
+  const [kind, setKind] = useAtom(orderKindFilterAtom);
   const [from, setFrom] = useAtom(dateFromAtom);
   const [to, setTo] = useAtom(dateToAtom);
   const hasFilters = useAtomValue(hasActiveFiltersAtom);
@@ -36,6 +38,7 @@ export default function OrderFilters() {
   function handleClear() {
     setQuery("");
     setType("");
+    setKind("");
     setFrom("");
     setTo("");
   }
@@ -52,12 +55,12 @@ export default function OrderFilters() {
           name="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Mã đơn, mã NV, ghi chú"
+          placeholder="Mã CO, mã PD, mã NV, ghi chú"
           autoComplete="off"
           spellCheck={false}
         />
       </label>
-      <label className="flex min-w-0 flex-1 flex-col gap-2 tablet:min-w-[180px]">
+      <label className="flex min-w-0 flex-1 flex-col gap-2 tablet:min-w-[260px] desk:flex-[1.6]">
         <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
           Công đoạn
         </span>
@@ -74,6 +77,22 @@ export default function OrderFilters() {
               {item.label}
             </option>
           ))}
+        </select>
+      </label>
+      <label className="flex min-w-0 flex-1 flex-col gap-2 tablet:min-w-[140px]">
+        <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+          Loại mã
+        </span>
+        <select
+          className={selectClass}
+          style={{ backgroundImage: selectChevron }}
+          name="orderKindFilter"
+          value={kind}
+          onChange={(event) => setKind(event.target.value)}
+        >
+          <option value="">Tất cả</option>
+          <option value="co">Mã CO</option>
+          <option value="pd">Mã PD</option>
         </select>
       </label>
       <label className="flex min-w-0 flex-1 flex-col gap-2 tablet:min-w-[160px]">

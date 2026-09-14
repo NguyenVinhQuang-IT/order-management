@@ -1,28 +1,40 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
+import { isManagerAtom } from "../auth";
 import GlobalNav from "../components/GlobalNav";
 import OrderEntryDialog from "../components/OrderEntryDialog";
 import OrderFilters from "../components/OrderFilters";
+import SecondsEditDialog from "../components/SecondsEditDialog";
 import { useToast } from "../components/Toast";
 import {
   accessibleOrdersAtom,
   clearOrdersAtom,
   filteredOrdersAtom,
+  getOrderKind,
   getOrderTypeLabel,
   hasActiveFiltersAtom,
-  orderKey,
+  recordKey,
   removeOrderAtom,
   removeOrdersByKeysAtom,
 } from "../orders";
+import {
+  codeSecondsAtom,
+  formatSeconds,
+  getOrderSeconds,
+  typeSecondsAtom,
+} from "../settings";
 
 const primaryButtonClass =
   "h-11 cursor-pointer rounded-full border-0 bg-primary px-[22px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-white hover:bg-primary-focus focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus active:scale-95 disabled:cursor-default disabled:opacity-[0.64]";
+
+const secondaryButtonClass =
+  "h-11 cursor-pointer rounded-full border border-black/8 bg-canvas px-[22px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-ink hover:bg-black/4 focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus active:scale-95";
 
 const textLinkClass =
   "cursor-pointer border-0 bg-transparent p-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-primary";
 
 const orderListCols =
-  "desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,1fr)_auto]";
+  "desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.55fr)_minmax(0,0.45fr)_minmax(0,1fr)_minmax(0,1fr)_auto]";
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -37,18 +49,25 @@ function formatEnteredAt(iso) {
 
 export default function Dashboard() {
   const notify = useToast();
+  const isManager = useAtomValue(isManagerAtom);
   const orders = useAtomValue(accessibleOrdersAtom);
   const visibleOrders = useAtomValue(filteredOrdersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
+  const typeSeconds = useAtomValue(typeSecondsAtom);
+  const codeSeconds = useAtomValue(codeSecondsAtom);
   const removeOrder = useSetAtom(removeOrderAtom);
   const removeOrdersByKeys = useSetAtom(removeOrdersByKeysAtom);
   const clearOrders = useSetAtom(clearOrdersAtom);
   const [entryOpen, setEntryOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
+  const [secondsOpen, setSecondsOpen] = useState(false);
   const dialogOpen = entryOpen || Boolean(editingOrder);
   const closeDialog = useCallback(() => {
     setEntryOpen(false);
     setEditingOrder(null);
+  }, []);
+  const closeSeconds = useCallback(() => {
+    setSecondsOpen(false);
   }, []);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const draggingRef = useRef(false);
@@ -64,15 +83,19 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    if (!isManager) setSecondsOpen(false);
+  }, [isManager]);
+
+  useEffect(() => {
     const valid = new Set(
-      visibleOrders.map((order) => orderKey(order.code, order.type)),
+      visibleOrders.map((order) => recordKey(order)),
     );
     setSelectedKeys((current) => {
       const next = new Set([...current].filter((key) => valid.has(key)));
       return next.size === current.size ? current : next;
     });
     setEditingOrder((current) =>
-      current && !valid.has(orderKey(current.code, current.type))
+      current && !valid.has(recordKey(current))
         ? null
         : current,
     );
@@ -85,7 +108,7 @@ export default function Dashboard() {
       const end = Math.max(from, to);
       const keys = list
         .slice(start, end + 1)
-        .map((order) => orderKey(order.code, order.type));
+        .map((order) => recordKey(order));
       setSelectedKeys(new Set(keys));
     }
 
@@ -113,16 +136,12 @@ export default function Dashboard() {
     };
   }, []);
 
-  function handleRemove(code, type) {
-    if (
-      editingOrder &&
-      editingOrder.code === code &&
-      editingOrder.type === type
-    ) {
+  function handleRemove(order) {
+    if (editingOrder && recordKey(editingOrder) === recordKey(order)) {
       setEditingOrder(null);
     }
-    removeOrder(code, type);
-    notify(`Đã xóa ${code}.`);
+    removeOrder(order.code, order.type, getOrderKind(order));
+    notify(`Đã xóa ${order.code}.`);
   }
 
   function handleClearSelection() {
@@ -142,7 +161,7 @@ export default function Dashboard() {
   function handleRowPointerDown(event, index, key) {
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, a")) return;
-    if (dialogOpen) return;
+    if (dialogOpen || secondsOpen) return;
 
     event.preventDefault();
     draggingRef.current = true;
@@ -155,7 +174,7 @@ export default function Dashboard() {
         new Set(
           list
             .slice(start, end + 1)
-            .map((order) => orderKey(order.code, order.type)),
+            .map((order) => recordKey(order)),
         ),
       );
       return;
@@ -183,6 +202,7 @@ export default function Dashboard() {
   }
 
   function handleStartEdit(order) {
+    setSecondsOpen(false);
     setEntryOpen(false);
     setEditingOrder(order);
   }
@@ -202,18 +222,36 @@ export default function Dashboard() {
               Mỗi dòng một mã CO
             </p>
           </div>
-          <button
-            className={primaryButtonClass}
-            type="button"
-            aria-haspopup="dialog"
-            aria-expanded={entryOpen}
-            onClick={() => {
-              setEditingOrder(null);
-              setEntryOpen(true);
-            }}
-          >
-            Nhập đơn
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            {isManager ? (
+              <button
+                className={secondaryButtonClass}
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded={secondsOpen}
+                onClick={() => {
+                  setEditingOrder(null);
+                  setEntryOpen(false);
+                  setSecondsOpen(true);
+                }}
+              >
+                Thêm mới
+              </button>
+            ) : null}
+            <button
+              className={primaryButtonClass}
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={entryOpen}
+              onClick={() => {
+                setSecondsOpen(false);
+                setEditingOrder(null);
+                setEntryOpen(true);
+              }}
+            >
+              Nhập đơn
+            </button>
+          </div>
         </div>
 
         <section
@@ -260,15 +298,16 @@ export default function Dashboard() {
           ) : (
             <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0 select-none">
               <li className={`hidden border-b border-hairline px-6 py-3 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink-muted-48 desk:grid ${orderListCols} desk:gap-4`}>
-                <span>Mã đơn</span>
+                <span>Mã</span>
                 <span>Công đoạn</span>
                 <span>Mã nhân viên</span>
+                <span>Giây</span>
                 <span>Thời gian</span>
                 <span>Ghi chú</span>
                 <span>Thao tác</span>
               </li>
               {visibleOrders.map((order, index) => {
-                const key = orderKey(order.code, order.type);
+                const key = recordKey(order);
                 const isSelected = selectedKeys.has(key);
                 return (
                   <li
@@ -291,6 +330,12 @@ export default function Dashboard() {
                       <span className="desk:hidden">Mã NV </span>
                       {order.employeeId || "—"}
                     </span>
+                    <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                      <span className="desk:hidden">Giây </span>
+                      {formatSeconds(
+                        getOrderSeconds(order, typeSeconds, codeSeconds),
+                      )}
+                    </span>
                     <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
                       {formatEnteredAt(order.updatedAt || order.createdAt)}
                     </span>
@@ -312,8 +357,7 @@ export default function Dashboard() {
                         aria-expanded={
                           Boolean(
                             editingOrder &&
-                              orderKey(editingOrder.code, editingOrder.type) ===
-                                key,
+                              recordKey(editingOrder) === key,
                           )
                         }
                         onClick={() => handleStartEdit(order)}
@@ -323,7 +367,7 @@ export default function Dashboard() {
                       <button
                         className={textLinkClass}
                         type="button"
-                        onClick={() => handleRemove(order.code, order.type)}
+                        onClick={() => handleRemove(order)}
                       >
                         Xóa
                       </button>
@@ -341,6 +385,10 @@ export default function Dashboard() {
         order={editingOrder}
         onClose={closeDialog}
       />
+
+      {isManager ? (
+        <SecondsEditDialog open={secondsOpen} onClose={closeSeconds} />
+      ) : null}
 
       {selectedKeys.size > 0 ? (
         <div className="fixed bottom-8 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-ink px-4 py-2 text-white">
