@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { sessionAtom } from "../auth";
+import { isManagerAtom, sessionAtom } from "../auth";
 import {
   addOrdersAtom,
   getOrderKind,
+  MAX_ORDERS_PER_ENTRY,
   normalizeOrderCode,
   ORDER_TYPES,
   parseOrderLines,
   updateOrderAtom,
+  updateOrderSecondsAtom,
 } from "../orders";
+import {
+  codeSecondsAtom,
+  getOrderSeconds,
+  parseSecondsInput,
+  typeSecondsAtom,
+} from "../settings";
 import { useToast } from "./Toast";
 
 const primaryButtonClass =
@@ -29,8 +37,12 @@ const textFieldClass =
 export default function OrderEntryDialog({ open, onClose, order = null }) {
   const notify = useToast();
   const session = useAtomValue(sessionAtom);
+  const isManager = useAtomValue(isManagerAtom);
+  const typeSeconds = useAtomValue(typeSecondsAtom);
+  const codeSeconds = useAtomValue(codeSecondsAtom);
   const addOrders = useSetAtom(addOrdersAtom);
   const updateOrder = useSetAtom(updateOrderAtom);
+  const saveOrderSeconds = useSetAtom(updateOrderSecondsAtom);
   const firstFieldRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -38,6 +50,7 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
   const [text, setText] = useState("");
   const [orderType, setOrderType] = useState("");
   const [note, setNote] = useState("");
+  const [seconds, setSeconds] = useState("");
   const [formError, setFormError] = useState("");
   const preview = useMemo(() => parseOrderLines(text), [text]);
 
@@ -46,6 +59,7 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
       setText("");
       setOrderType("");
       setNote("");
+      setSeconds("");
       setFormError("");
       return undefined;
     }
@@ -53,6 +67,10 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
     setText(order?.code ?? "");
     setOrderType(order?.type ?? "");
     setNote(order?.note ?? "");
+    const resolved = order
+      ? getOrderSeconds(order, typeSeconds, codeSeconds)
+      : null;
+    setSeconds(resolved == null ? "" : String(resolved));
     setFormError("");
 
     const frame = window.requestAnimationFrame(() => {
@@ -71,7 +89,7 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKey);
     };
-  }, [open, order]);
+  }, [open, order, typeSeconds, codeSeconds]);
 
   if (!open) return null;
 
@@ -92,6 +110,16 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
         return;
       }
 
+      let parsedSeconds = { value: null, error: "" };
+      if (isManager) {
+        parsedSeconds = parseSecondsInput(seconds);
+        if (parsedSeconds.error) {
+          setFormError(parsedSeconds.error);
+          notify(parsedSeconds.error, "error");
+          return;
+        }
+      }
+
       const result = updateOrder(order.code, order.type, {
         code,
         type: orderType,
@@ -102,6 +130,19 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
         setFormError(result.error);
         notify(result.error, "error");
         return;
+      }
+      if (isManager) {
+        const secondsResult = saveOrderSeconds(
+          code,
+          orderType,
+          parsedSeconds.value,
+          getOrderKind(order),
+        );
+        if (secondsResult.error) {
+          setFormError(secondsResult.error);
+          notify(secondsResult.error, "error");
+          return;
+        }
       }
       notify(`Đã cập nhật ${code}.`);
       onClose();
@@ -114,8 +155,19 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
       notify("Nhập ít nhất một mã đơn.", "error");
       return;
     }
+    if (valid.length > MAX_ORDERS_PER_ENTRY) {
+      const message = `Mỗi lần nhập tối đa ${MAX_ORDERS_PER_ENTRY} đơn.`;
+      setFormError(message);
+      notify(message, "error");
+      return;
+    }
 
     const result = addOrders(valid, session?.employeeId, orderType, note);
+    if (result.error) {
+      setFormError(result.error);
+      notify(result.error, "error");
+      return;
+    }
     const parts = [];
     if (result.added.length) {
       parts.push(`Đã nhập ${result.added.length} đơn hàng.`);
@@ -225,14 +277,41 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
               />
               <span
                 id="order-help"
-                className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48"
+                className={`text-sm font-normal leading-[1.43] tracking-[-0.224px] ${
+                  preview.valid.length > MAX_ORDERS_PER_ENTRY
+                    ? "text-warn"
+                    : "text-ink-muted-48"
+                }`}
               >
                 {preview.valid.length
-                  ? `${preview.valid.length} mã đơn.`
-                  : "Dán mã đơn, mỗi dòng một mã."}
+                  ? preview.valid.length > MAX_ORDERS_PER_ENTRY
+                    ? `${preview.valid.length} mã đơn. Tối đa ${MAX_ORDERS_PER_ENTRY} mã một lần.`
+                    : `${preview.valid.length} mã đơn.`
+                  : `Dán mã đơn, mỗi dòng một mã. Tối đa ${MAX_ORDERS_PER_ENTRY} mã một lần.`}
               </span>
             </label>
           )}
+
+          {isEdit && isManager ? (
+            <label className="mt-6 flex flex-col gap-2">
+              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+                Thời gian hoàn thành (giây)
+              </span>
+              <input
+                className={`${textFieldClass} tabular-nums`}
+                name="seconds"
+                type="text"
+                inputMode="numeric"
+                value={seconds}
+                onChange={(event) => {
+                  setSeconds(event.target.value);
+                  if (formError) setFormError("");
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder="Không bắt buộc"
+              />
+            </label>
+          ) : null}
 
           <label className="mt-6 flex flex-col gap-2">
             <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">

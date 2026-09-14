@@ -8,6 +8,7 @@ import {
   filterOrdersByQuery,
   ORDER_TYPES,
   getOrderKind,
+  MAX_ORDERS_PER_ENTRY,
   parseOrderLines,
   recordKey,
   updateOrderSecondsAtom,
@@ -270,6 +271,12 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
         notify("Nhập ít nhất một mã PD.", "error");
         return;
       }
+      if (pdPreview.valid.length > MAX_ORDERS_PER_ENTRY) {
+        const message = `Mỗi lần nhập tối đa ${MAX_ORDERS_PER_ENTRY} đơn.`;
+        setFormError(message);
+        notify(message, "error");
+        return;
+      }
       const result = saveCodeSeconds(orderType, pdPreview.valid, value);
       if (result.error) {
         setFormError(result.error);
@@ -284,6 +291,11 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
         parsed.value,
         "pd",
       );
+      if (created.error) {
+        setFormError(created.error);
+        notify(created.error, "error");
+        return;
+      }
       const parts = [];
       if (created.added.length) {
         parts.push(`Đã thêm ${created.added.length} mã PD.`);

@@ -4,6 +4,7 @@ import { sessionAtom } from "./auth";
 import { sessionJsonStorage } from "./storage";
 
 const STORAGE_KEY = "om_orders";
+export const MAX_ORDERS_PER_ENTRY = 50;
 
 export const RECEIVE_ORDER_TYPE_ID = "xep-ban-nhan-don";
 export const PD_ORDER_TYPE_IDS = ["lam-don", "kiem-don"];
@@ -105,6 +106,15 @@ export function addOrders(
   seconds = null,
   kind = "co",
 ) {
+  if (codes.length > MAX_ORDERS_PER_ENTRY) {
+    return {
+      orders: current,
+      added: [],
+      duplicates: [],
+      error: `Mỗi lần nhập tối đa ${MAX_ORDERS_PER_ENTRY} đơn.`,
+    };
+  }
+
   const codeKind = getOrderKind(kind);
   const existing = new Set(current.map((order) => recordKey(order)));
   const added = [];
@@ -610,13 +620,11 @@ export const updateOrderAtom = atom(
 export const updateOrderSecondsAtom = atom(
   null,
   (get, set, code, type, seconds, kind = "co") => {
-    const result = updateOrderSeconds(
-      get(ordersAtom),
-      code,
-      type,
-      seconds,
-      kind,
-    );
+    const current = get(ordersAtom);
+    if (get(sessionAtom)?.role !== "manager") {
+      return { orders: current, error: "Chỉ quản lý mới sửa được số giây." };
+    }
+    const result = updateOrderSeconds(current, code, type, seconds, kind);
     if (!result.error) {
       set(ordersAtom, result.orders);
     }
@@ -625,7 +633,11 @@ export const updateOrderSecondsAtom = atom(
 );
 
 export const updateOrdersSecondsAtom = atom(null, (get, set, keys, seconds) => {
-  const result = updateOrdersSeconds(get(ordersAtom), keys, seconds);
+  const current = get(ordersAtom);
+  if (get(sessionAtom)?.role !== "manager") {
+    return { orders: current, error: "Chỉ quản lý mới sửa được số giây." };
+  }
+  const result = updateOrdersSeconds(current, keys, seconds);
   if (!result.error) {
     set(ordersAtom, result.orders);
   }

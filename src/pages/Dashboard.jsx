@@ -83,8 +83,8 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (!isManager) setSecondsOpen(false);
-  }, [isManager]);
+    if (!isManager) closeSeconds();
+  }, [isManager, closeSeconds]);
 
   useEffect(() => {
     const valid = new Set(
@@ -196,6 +196,7 @@ export default function Dashboard() {
 
   function handleClear() {
     setEditingOrder(null);
+    setSecondsOpen(false);
     setSelectedKeys(new Set());
     clearOrders();
     notify("Đã xóa toàn bộ đơn hàng.");
@@ -244,7 +245,7 @@ export default function Dashboard() {
               aria-haspopup="dialog"
               aria-expanded={entryOpen}
               onClick={() => {
-                setSecondsOpen(false);
+                closeSeconds();
                 setEditingOrder(null);
                 setEntryOpen(true);
               }}
