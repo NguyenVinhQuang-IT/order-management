@@ -236,7 +236,7 @@ export default function Dashboard() {
                   setSecondsOpen(true);
                 }}
               >
-                Thêm mới
+                Tùy chỉnh
               </button>
             ) : null}
             <button
@@ -317,9 +317,8 @@ export default function Dashboard() {
                     data-order-key={key}
                     aria-selected={isSelected}
                     onPointerDown={(event) => handleRowPointerDown(event, index, key)}
-                    className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center ${
-                      isSelected ? "bg-[#e8f1fb]" : "bg-canvas"
-                    } ${index < visibleOrders.length - 1 ? "border-b border-hairline" : ""}`}
+                    className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center ${isSelected ? "bg-[#e8f1fb]" : "bg-canvas"
+                      } ${index < visibleOrders.length - 1 ? "border-b border-hairline" : ""}`}
                   >
                     <span className="text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums">
                       {order.code}
@@ -358,7 +357,7 @@ export default function Dashboard() {
                         aria-expanded={
                           Boolean(
                             editingOrder &&
-                              recordKey(editingOrder) === key,
+                            recordKey(editingOrder) === key,
                           )
                         }
                         onClick={() => handleStartEdit(order)}
