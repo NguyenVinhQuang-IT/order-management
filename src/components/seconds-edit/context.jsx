@@ -17,3 +17,8 @@ export function useSecondsEditForm() {
   }
   return value;
 }
+
+export function useSecondsSubmit(handler) {
+  const { submitRef } = useSecondsEditForm();
+  submitRef.current = handler;
+}

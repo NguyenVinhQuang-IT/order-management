@@ -1,25 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
-import { isManagerAtom, sessionAtom } from "../auth";
+import { useAtomValue } from "jotai";
+import { isManagerAtom } from "../auth";
 import {
   accessibleOrdersAtom,
-  addOrdersAtom,
   allowsPdCodes,
   filterOrdersByQuery,
   ORDER_TYPES,
-  getOrderKind,
-  MAX_ORDERS_PER_ENTRY,
   parseOrderLines,
   recordKey,
-  updateOrderSecondsAtom,
-  updateOrdersSecondsAtom,
 } from "../orders";
-import {
-  parseSecondsInput,
-  saveCodeSecondsAtom,
-  saveOneCodeSecondsAtom,
-  saveOneTypeSecondsAtom,
-} from "../settings";
 import { SecondsEditFormProvider } from "./seconds-edit/context";
 import { getSecondsTypePanel } from "./seconds-edit/registry";
 import {
@@ -34,16 +23,10 @@ import { useToast } from "./Toast";
 export default function SecondsEditDialog({ open, onClose, entry = null }) {
   const notify = useToast();
   const isManager = useAtomValue(isManagerAtom);
-  const session = useAtomValue(sessionAtom);
   const orders = useAtomValue(accessibleOrdersAtom);
-  const addOrders = useSetAtom(addOrdersAtom);
-  const saveTypeSeconds = useSetAtom(saveOneTypeSecondsAtom);
-  const saveOrderSeconds = useSetAtom(updateOrderSecondsAtom);
-  const saveOrdersSeconds = useSetAtom(updateOrdersSecondsAtom);
-  const saveCodeSeconds = useSetAtom(saveCodeSecondsAtom);
-  const saveOneCodeSeconds = useSetAtom(saveOneCodeSecondsAtom);
   const typeRef = useRef(null);
   const secondsRef = useRef(null);
+  const submitRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const isEdit = Boolean(entry);
@@ -134,8 +117,8 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
   );
 
   const pdPreview = useMemo(() => parseOrderLines(pdText), [pdText]);
-  const pdAllowed = allowsPdCodes(orderType);
   const TypePanel = getSecondsTypePanel(orderType);
+  if (!TypePanel) submitRef.current = null;
 
   if (!open || !isManager) return null;
 
@@ -178,144 +161,12 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if (!orderType) {
+    if (!orderType || typeof submitRef.current !== "function") {
       setFormError("Chọn công đoạn.");
       notify("Chọn công đoạn.", "error");
       return;
     }
-
-    const parsed = parseSecondsInput(value);
-    if (parsed.error) {
-      setFormError(parsed.error);
-      notify(parsed.error, "error");
-      return;
-    }
-    if (parsed.value == null) {
-      setFormError("Nhập thời gian hoàn thành.");
-      notify("Nhập thời gian hoàn thành.", "error");
-      return;
-    }
-
-    if (scope === "all") {
-      const overrideKeys = typeOrders
-        .filter(
-          (order) =>
-            typeof order.seconds === "number" && Number.isFinite(order.seconds),
-        )
-        .map((order) => recordKey(order));
-      if (overrideKeys.length) {
-        const cleared = saveOrdersSeconds(overrideKeys, null);
-        if (cleared.error) {
-          setFormError(cleared.error);
-          notify(cleared.error, "error");
-          return;
-        }
-      }
-      const result = saveTypeSeconds(orderType, value);
-      if (result.error) {
-        setFormError(result.error);
-        notify(result.error, "error");
-        return;
-      }
-      const label =
-        ORDER_TYPES.find((item) => item.id === orderType)?.label ?? "công đoạn";
-      notify(`Đã lưu số giây cho tất cả mã của ${label}.`);
-      onClose();
-      return;
-    }
-
-    if (isEdit && entry?.kind === "order") {
-      const result = saveOrderSeconds(
-        entry.order.code,
-        entry.order.type,
-        parsed.value,
-        getOrderKind(entry.order),
-      );
-      if (result.error) {
-        setFormError(result.error);
-        notify(result.error, "error");
-        return;
-      }
-      notify(`Đã lưu số giây cho ${entry.order.code}.`);
-      onClose();
-      return;
-    }
-
-    if (isEdit && entry?.kind === "code") {
-      const result = saveOneCodeSeconds(entry.code, entry.type, value);
-      if (result.error) {
-        setFormError(result.error);
-        notify(result.error, "error");
-        return;
-      }
-      notify(`Đã lưu số giây cho ${entry.code}.`);
-      onClose();
-      return;
-    }
-
-    if (scope === "pd") {
-      if (!pdAllowed) {
-        setFormError("Công đoạn này không dùng mã PD.");
-        notify("Công đoạn này không dùng mã PD.", "error");
-        return;
-      }
-      if (pdPreview.valid.length === 0) {
-        setFormError("Nhập ít nhất một mã PD, mỗi dòng một mã.");
-        notify("Nhập ít nhất một mã PD.", "error");
-        return;
-      }
-      if (pdPreview.valid.length > MAX_ORDERS_PER_ENTRY) {
-        const message = `Mỗi lần nhập tối đa ${MAX_ORDERS_PER_ENTRY} đơn.`;
-        setFormError(message);
-        notify(message, "error");
-        return;
-      }
-      const result = saveCodeSeconds(orderType, pdPreview.valid, value);
-      if (result.error) {
-        setFormError(result.error);
-        notify(result.error, "error");
-        return;
-      }
-      const created = addOrders(
-        result.codes,
-        session?.employeeId,
-        orderType,
-        "",
-        parsed.value,
-        "pd",
-      );
-      if (created.error) {
-        setFormError(created.error);
-        notify(created.error, "error");
-        return;
-      }
-      const parts = [];
-      if (created.added.length) {
-        parts.push(`Đã thêm ${created.added.length} mã PD.`);
-      }
-      if (created.duplicates.length) {
-        parts.push(`Đã cập nhật ${created.duplicates.length} mã đã có.`);
-      }
-      parts.push(`Đã lưu số giây cho ${result.codes.length} mã PD.`);
-      notify(parts.join(" "));
-      onClose();
-      return;
-    }
-
-    if (selectedKeys.size === 0) {
-      setFormError("Chọn ít nhất một mã đơn.");
-      notify("Chọn ít nhất một mã đơn.", "error");
-      return;
-    }
-
-    const result = saveOrdersSeconds(selectedKeys, parsed.value);
-    if (result.error) {
-      setFormError(result.error);
-      notify(result.error, "error");
-      return;
-    }
-    notify(`Đã lưu số giây cho ${selectedKeys.size} mã đơn.`);
-    onClose();
+    submitRef.current();
   }
 
   const typeLabel =
@@ -341,6 +192,9 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
     formError,
     setFormError,
     secondsRef,
+    submitRef,
+    notify,
+    onClose,
     toggleKey,
     handleSelectVisible,
   };

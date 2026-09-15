@@ -31,11 +31,10 @@ export function ApplyScope({ scopes }) {
         />
       ) : (
         <div
-          className={`grid gap-1 border border-black/8 bg-canvas p-1 ${
-            scopes.length === 3
-              ? "grid-cols-1 auto-rows-[44px] rounded-[18px] tablet:h-11 tablet:grid-cols-3 tablet:auto-rows-auto tablet:rounded-full"
-              : "h-11 grid-cols-2 rounded-full"
-          }`}
+          className={`grid gap-1 border border-black/8 bg-canvas p-1 ${scopes.length === 3
+            ? "grid-cols-1 auto-rows-[44px] rounded-[18px] tablet:h-11 tablet:grid-cols-3 tablet:auto-rows-auto tablet:rounded-full"
+            : "h-11 grid-cols-2 rounded-full"
+            }`}
           role="radiogroup"
           aria-label="Áp dụng"
         >
@@ -47,11 +46,10 @@ export function ApplyScope({ scopes }) {
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                className={`h-full cursor-pointer rounded-full border-0 px-1 text-[13px] font-normal leading-none tracking-[-0.224px] tablet:text-[15px] ${
-                  selected
-                    ? "bg-ink text-white"
-                    : "bg-transparent text-ink-muted-80 hover:text-ink"
-                }`}
+                className={`h-full cursor-pointer rounded-full border-0 px-1 text-[13px] font-normal leading-none tracking-[-0.224px] tablet:text-[15px] ${selected
+                  ? "bg-ink text-white"
+                  : "bg-transparent text-ink-muted-80 hover:text-ink"
+                  }`}
                 onClick={() => {
                   setScope(item.id);
                   if (formError) setFormError("");
@@ -173,9 +171,8 @@ export function OrderPickerField() {
                     }
                   >
                     <label
-                      className={`flex cursor-pointer items-center gap-3 px-5 py-3 ${
-                        checked ? "bg-[#e8f1fb]" : "hover:bg-parchment"
-                      }`}
+                      className={`flex cursor-pointer items-center gap-3 px-5 py-3 ${checked ? "bg-[#e8f1fb]" : "hover:bg-parchment"
+                        }`}
                     >
                       <input
                         className="h-4 w-4 shrink-0 accent-primary"
@@ -198,15 +195,13 @@ export function OrderPickerField() {
   );
 }
 
-export function SecondsField() {
+export function SecondsField({ placeholder }) {
   const { secondsRef, value, setValue, formError, setFormError } =
     useSecondsEditForm();
 
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
-        Thời gian hoàn thành (giây)
-      </span>
+      <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">{placeholder}</span>
       <input
         ref={secondsRef}
         className={`${textFieldClass} tabular-nums`}

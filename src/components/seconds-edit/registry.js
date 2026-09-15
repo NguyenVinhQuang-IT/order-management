@@ -1,5 +1,3 @@
-import CoTypeFields from "./CoTypeFields";
-
 const typeModules = import.meta.glob("./types/*.jsx", { eager: true });
 
 const PANELS = Object.fromEntries(
@@ -11,5 +9,5 @@ const PANELS = Object.fromEntries(
 
 export function getSecondsTypePanel(typeId) {
   if (!typeId) return null;
-  return PANELS[typeId] ?? CoTypeFields;
+  return PANELS[typeId] ?? null;
 }
