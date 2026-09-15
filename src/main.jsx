@@ -6,11 +6,9 @@ import App from "./App.jsx";
 import "./styles/global.css";
 
 createRoot(document.getElementById("root")).render(
-  <StrictMode>
-    <Provider>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </Provider>
-  </StrictMode>,
+  <Provider>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </Provider>
 );

@@ -79,21 +79,18 @@ export default function Login() {
           aria-label="Giới thiệu"
         >
           <div>
-            <div className="mb-8 w-[min(100%,320px)] rounded-[18px] bg-canvas p-5">
+            <div className="mb-8 w-[min(100%,320px)] rounded-lg bg-canvas p-5 border-b-5 border-black/50">
               <img
                 src="/logo.png"
                 alt="BSN"
                 className="block h-auto w-full"
               />
             </div>
-            <p className="mb-3 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px]">
-              Order
-            </p>
             <h1 className="m-0 font-sans text-[28px] font-semibold leading-[1.1] tracking-[-0.01em] min-[420px]:text-[34px] desk:text-[40px]">
-              Quản lý đơn hàng.
+              Quản lý đơn hàng
             </h1>
-            <p className="mt-4 max-w-[14em] font-sans text-[21px] font-normal leading-[1.19] tracking-[0.196px] text-body-muted tablet:text-[24px] tablet:font-light tablet:leading-normal tablet:tracking-normal desk:text-[28px] desk:font-normal desk:leading-[1.14] desk:tracking-[0.196px]">
-              Một nơi cho mọi đơn hàng.
+            <p className="mt-4 max-w-[14em] font-sans text-[20px] font-normal leading-[1.19] tracking-[0.196px] text-body-muted tablet:text-[19px] tablet:font-light tablet:leading-normal tablet:tracking-normal desk:text-[20px] desk:font-normal desk:leading-[1.14] desk:tracking-[0.196px]">
+              Hệ thống quản lý công đoạn và quy trình
             </p>
           </div>
         </section>
@@ -118,9 +115,8 @@ export default function Login() {
                 Vai trò
               </span>
               <div
-                className={`grid h-11 grid-cols-2 gap-1 rounded-full border p-1 ${
-                  fieldErrors.role ? "border-ink bg-canvas" : "border-black/8 bg-canvas"
-                }`}
+                className={`grid h-11 grid-cols-2 gap-1 rounded-full border p-1 ${fieldErrors.role ? "border-ink bg-canvas" : "border-black/8 bg-canvas"
+                  }`}
                 role="radiogroup"
                 aria-label="Vai trò"
                 aria-invalid={Boolean(fieldErrors.role)}
@@ -134,11 +130,10 @@ export default function Login() {
                       type="button"
                       role="radio"
                       aria-checked={selected}
-                      className={`h-full cursor-pointer rounded-full border-0 text-[15px] font-normal leading-none tracking-[-0.224px] ${
-                        selected
-                          ? "bg-ink text-white"
-                          : "bg-transparent text-ink-muted-80 hover:text-ink"
-                      }`}
+                      className={`h-full cursor-pointer rounded-full border-0 text-[15px] font-normal leading-none tracking-[-0.224px] ${selected
+                        ? "bg-ink text-white"
+                        : "bg-transparent text-ink-muted-80 hover:text-ink"
+                        }`}
                       onClick={() => {
                         setRole(item.id);
                         if (fieldErrors.role) {
