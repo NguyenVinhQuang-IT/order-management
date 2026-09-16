@@ -103,13 +103,5 @@ export default function LuuSizeDoiChieuFields() {
     onClose();
   });
 
-  return (
-    <>
-      <ApplyScope scopes={SCOPES} />
-      {!isEdit && scope === "selected" && orderType ? (
-        <OrderPickerField />
-      ) : null}
-      <SecondsField />
-    </>
-  );
+  return <SecondsField placeholder={'Thời gian hoàn thành (giây)'} />
 }

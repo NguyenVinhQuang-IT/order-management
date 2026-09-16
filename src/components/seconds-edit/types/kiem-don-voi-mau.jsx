@@ -1,7 +1,6 @@
 import { useSetAtom } from "jotai";
-import { ApplyScope, OrderPickerField, SecondsField } from "../fields";
+import { SecondsField } from "../fields";
 import { useSecondsEditForm, useSecondsSubmit } from "../context";
-import { SCOPES } from "../styles";
 import {
   getOrderKind,
   recordKey,

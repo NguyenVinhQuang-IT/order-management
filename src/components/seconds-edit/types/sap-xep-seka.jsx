@@ -103,5 +103,5 @@ export default function SapXepSekaFields() {
     onClose();
   });
 
-  return <SecondsField placeholder={'Nhập số lượng seka'} />
+  return <SecondsField placeholder={'Thời gian hoàn thành (giây)'} />
 }

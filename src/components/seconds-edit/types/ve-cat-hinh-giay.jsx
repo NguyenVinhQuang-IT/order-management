@@ -102,14 +102,5 @@ export default function VeCatHinhGiayFields() {
     notify(`Đã lưu số giây cho ${selectedKeys.size} mã đơn.`);
     onClose();
   });
-
-  return (
-    <>
-      <ApplyScope scopes={SCOPES} />
-      {!isEdit && scope === "selected" && orderType ? (
-        <OrderPickerField />
-      ) : null}
-      <SecondsField />
-    </>
-  );
+  return <SecondsField placeholder={'Thời gian hoàn thành (giây)'} />
 }

@@ -103,6 +103,6 @@ export default function PhanHinhTheMauTemChuyenInFields() {
     onClose();
   });
 
-  return <SecondsField placeholder={'Nhập số lượng lưu'} />
+  return <SecondsField placeholder={'Thời gian hoàn thành (giây)'} />
 
 }
