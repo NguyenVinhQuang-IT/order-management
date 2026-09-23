@@ -4,3 +4,11 @@ dist
 *.local
 .vite
 bun.lock
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+backend/data/*.db
+backend/data/*.db-*
+*.db
