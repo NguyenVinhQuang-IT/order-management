@@ -1,5 +1,7 @@
-from datetime import datetime, timezone
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+
+from flask import g, has_app_context
 
 from .auth import hash_password, verify_password
 from .constants import (
@@ -9,10 +11,17 @@ from .constants import (
     PD_PROCESS_SLUGS,
     PROCESS_BY_ID,
     PROCESS_BY_NAME,
-    PROCESS_BY_SLUG,
     ROLES,
 )
-from .db import dump_data, get_db, parse_data, row_dict, transaction
+from .db import batched, dump_data, get_db, parse_data, placeholders, row_dict, transaction
+
+ORDER_SELECT = """
+    SELECT o.id, o.co, o.emp_id, o.process_id, o.note, o.created_at,
+           e.name AS emp_name, p.name AS process_name
+    FROM oders o
+    LEFT JOIN emp e ON e.id = o.emp_id
+    LEFT JOIN process p ON p.id = o.process_id
+"""
 
 
 def now_iso():
@@ -72,6 +81,21 @@ def allows_pd(slug):
     return slug in PD_PROCESS_SLUGS
 
 
+def _next_day(value):
+    try:
+        year, month, day = (int(part) for part in value.split("-", 2))
+        return (datetime(year, month, day) + timedelta(days=1)).date().isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
+def invalidate_catalog():
+    if has_app_context():
+        g.pop("process_catalog", None)
+        g.pop("auth_map", None)
+        g.pop("system_config", None)
+
+
 def _system_config_row(db=None):
     db = db or get_db()
     return db.execute(
@@ -80,8 +104,13 @@ def _system_config_row(db=None):
 
 
 def get_system_config(db=None):
+    if has_app_context() and "system_config" in g:
+        return g.system_config
     row = _system_config_row(db)
-    return parse_data(row["data"] if row else None)
+    payload = parse_data(row["data"] if row else None)
+    if has_app_context():
+        g.system_config = payload
+    return payload
 
 
 def save_system_config(payload, db=None):
@@ -92,12 +121,19 @@ def save_system_config(payload, db=None):
         db.execute("UPDATE config SET data = ? WHERE id = ?", (data, row["id"]))
     else:
         db.execute("INSERT INTO config (process_id, data) VALUES (?, ?)", (None, data))
+    if has_app_context():
+        g.system_config = payload
+        g.pop("auth_map", None)
 
 
 def get_auth_map(db=None):
-    payload = get_system_config(db)
-    auth = payload.get("auth")
-    return auth if isinstance(auth, dict) else {}
+    if has_app_context() and "auth_map" in g:
+        return g.auth_map
+    auth = get_system_config(db).get("auth")
+    mapping = auth if isinstance(auth, dict) else {}
+    if has_app_context():
+        g.auth_map = mapping
+    return mapping
 
 
 def get_employee_auth(emp_id, db=None):
@@ -107,8 +143,8 @@ def get_employee_auth(emp_id, db=None):
 
 def set_employee_auth(emp_id, role, password=None, db=None):
     db = db or get_db()
-    payload = get_system_config(db)
-    auth = payload.get("auth") if isinstance(payload.get("auth"), dict) else {}
+    payload = dict(get_system_config(db))
+    auth = dict(payload.get("auth") if isinstance(payload.get("auth"), dict) else {})
     current = auth.get(str(emp_id)) if isinstance(auth.get(str(emp_id)), dict) else {}
     next_entry = {
         "role": role or current.get("role") or "employee",
@@ -123,14 +159,45 @@ def set_employee_auth(emp_id, role, password=None, db=None):
 
 def delete_employee_auth(emp_id, db=None):
     db = db or get_db()
-    payload = get_system_config(db)
-    auth = payload.get("auth") if isinstance(payload.get("auth"), dict) else {}
+    payload = dict(get_system_config(db))
+    auth = dict(payload.get("auth") if isinstance(payload.get("auth"), dict) else {})
     auth.pop(str(emp_id), None)
     payload["auth"] = auth
     save_system_config(payload, db)
 
 
+def _process_config_map(db):
+    mapping = {}
+    for row in db.execute("SELECT process_id, data FROM config WHERE process_id IS NOT NULL"):
+        if row["process_id"] not in mapping:
+            mapping[row["process_id"]] = parse_data(row["data"])
+    return mapping
+
+
+def process_catalog(db=None):
+    if has_app_context() and "process_catalog" in g:
+        return g.process_catalog
+    db = db or get_db()
+    cfg_map = _process_config_map(db)
+    items = []
+    by_id = {}
+    by_slug = {}
+    for row in db.execute("SELECT id, name FROM process ORDER BY id"):
+        item = serialize_process(row, cfg_map.get(row["id"]))
+        items.append(item)
+        by_id[item["id"]] = item
+        if item["slug"]:
+            by_slug[item["slug"]] = item
+    catalog = {"items": items, "by_id": by_id, "by_slug": by_slug, "cfg": cfg_map}
+    if has_app_context():
+        g.process_catalog = catalog
+    return catalog
+
+
 def get_process_config(process_id, db=None):
+    catalog = process_catalog(db) if has_app_context() and "process_catalog" in g else None
+    if catalog and process_id in catalog["cfg"]:
+        return None, dict(catalog["cfg"][process_id])
     db = db or get_db()
     row = db.execute(
         "SELECT id, process_id, data FROM config WHERE process_id = ? ORDER BY id LIMIT 1",
@@ -141,16 +208,23 @@ def get_process_config(process_id, db=None):
 
 def save_process_config(process_id, payload, db=None):
     db = db or get_db()
-    row, _current = get_process_config(process_id, db)
     data = dump_data(payload)
-    if row:
-        db.execute("UPDATE config SET data = ? WHERE id = ?", (data, row["id"]))
-        return row["id"]
-    cursor = db.execute(
-        "INSERT INTO config (process_id, data) VALUES (?, ?)",
-        (process_id, data),
-    )
-    return cursor.lastrowid
+    db.execute("UPDATE config SET data = ? WHERE process_id = ?", (data, process_id))
+    changed = db.execute("SELECT changes()").fetchone()[0]
+    if not changed:
+        cursor = db.execute(
+            "INSERT INTO config (process_id, data) VALUES (?, ?)",
+            (process_id, data),
+        )
+        config_id = cursor.lastrowid
+    else:
+        row = db.execute(
+            "SELECT id FROM config WHERE process_id = ? ORDER BY id LIMIT 1",
+            (process_id,),
+        ).fetchone()
+        config_id = row["id"]
+    invalidate_catalog()
+    return config_id
 
 
 def process_slug(process_id, name=None, config=None):
@@ -161,31 +235,6 @@ def process_slug(process_id, name=None, config=None):
         return mapped[0]
     if name and name in PROCESS_BY_NAME:
         return PROCESS_BY_NAME[name][1]
-    return None
-
-
-def get_process(process_id):
-    db = get_db()
-    row = db.execute("SELECT id, name FROM process WHERE id = ?", (process_id,)).fetchone()
-    if not row:
-        return None
-    _cfg_row, cfg = get_process_config(process_id, db)
-    return serialize_process(row, cfg)
-
-
-def find_process(process_id=None, slug=None):
-    if process_id is not None:
-        return get_process(parse_int(process_id))
-    if slug:
-        db = get_db()
-        rows = db.execute("SELECT id, name FROM process").fetchall()
-        for row in rows:
-            _cfg_row, cfg = get_process_config(row["id"], db)
-            if process_slug(row["id"], row["name"], cfg) == slug:
-                return serialize_process(row, cfg)
-        mapped = PROCESS_BY_SLUG.get(slug)
-        if mapped:
-            return get_process(mapped[0])
     return None
 
 
@@ -202,14 +251,25 @@ def serialize_process(row, cfg=None):
     }
 
 
+def get_process(process_id):
+    process_id = parse_int(process_id)
+    if process_id is None:
+        return None
+    return process_catalog()["by_id"].get(process_id)
+
+
+def find_process(process_id=None, slug=None):
+    catalog = process_catalog()
+    if process_id is not None:
+        pid = parse_int(process_id)
+        return catalog["by_id"].get(pid)
+    if slug:
+        return catalog["by_slug"].get(slug)
+    return None
+
+
 def list_processes():
-    db = get_db()
-    rows = db.execute("SELECT id, name FROM process ORDER BY id").fetchall()
-    items = []
-    for row in rows:
-        _cfg_row, cfg = get_process_config(row["id"], db)
-        items.append(serialize_process(row, cfg))
-    return items
+    return process_catalog()["items"]
 
 
 def serialize_employee(row, auth=None):
@@ -242,7 +302,7 @@ def list_employees():
 def authenticate(employee_id, password, role):
     if role not in ROLES:
         return None, "Chọn vai trò."
-    emp_id = parse_int(str(employee_id).strip())
+    emp_id = parse_int(str(employee_id).strip() if employee_id is not None else "")
     employee = get_employee(emp_id)
     if not employee:
         return None, "Mã nhân viên hoặc mật khẩu không đúng."
@@ -256,10 +316,9 @@ def authenticate(employee_id, password, role):
 
 def order_seconds_value(order_id, code, cfg):
     order_seconds = cfg.get("order_seconds") if isinstance(cfg.get("order_seconds"), dict) else {}
-    if str(order_id) in order_seconds:
-        value = order_seconds.get(str(order_id))
-        if isinstance(value, int):
-            return value
+    value = order_seconds.get(str(order_id))
+    if isinstance(value, int):
+        return value
     code_seconds = cfg.get("code_seconds") if isinstance(cfg.get("code_seconds"), dict) else {}
     if code in code_seconds and isinstance(code_seconds[code], int):
         return code_seconds[code]
@@ -288,30 +347,48 @@ def serialize_order(row, emp_name=None, process_name=None, cfg=None):
     }
 
 
-def _process_config_map(db):
-    mapping = {}
-    for row in db.execute("SELECT id, process_id, data FROM config WHERE process_id IS NOT NULL"):
-        mapping[row["process_id"]] = parse_data(row["data"])
-    return mapping
+def _serialize_rows(rows, cfg_map=None):
+    cfg_map = cfg_map if cfg_map is not None else process_catalog()["cfg"]
+    return [
+        serialize_order(row, row["emp_name"], row["process_name"], cfg_map.get(row["process_id"]))
+        for row in rows
+    ]
+
+
+def get_orders_by_ids(ids, user=None, db=None):
+    ids = [parse_int(item) for item in ids]
+    ids = [item for item in ids if item is not None]
+    if not ids:
+        return []
+    db = db or get_db()
+    found = {}
+    for chunk in batched(ids):
+        sql = f"{ORDER_SELECT} WHERE o.id IN ({placeholders(len(chunk))})"
+        for row in db.execute(sql, chunk):
+            if user and user["role"] != "manager" and row["emp_id"] != user["id"]:
+                continue
+            found[row["id"]] = row
+    cfg_map = process_catalog(db)["cfg"]
+    items = []
+    for order_id in ids:
+        row = found.get(order_id)
+        if row:
+            items.append(
+                serialize_order(row, row["emp_name"], row["process_name"], cfg_map.get(row["process_id"]))
+            )
+    return items
 
 
 def list_orders(user, filters=None):
     filters = filters or {}
     db = get_db()
-    sql = """
-        SELECT o.id, o.co, o.emp_id, o.process_id, o.note, o.created_at,
-               e.name AS emp_name, p.name AS process_name
-        FROM oders o
-        LEFT JOIN emp e ON e.id = o.emp_id
-        LEFT JOIN process p ON p.id = o.process_id
-        WHERE 1 = 1
-    """
+    sql = [ORDER_SELECT, "WHERE 1 = 1"]
     params = []
     if user["role"] != "manager":
-        sql += " AND o.emp_id = ?"
+        sql.append("AND o.emp_id = ?")
         params.append(user["id"])
     elif filters.get("emp_id") not in (None, ""):
-        sql += " AND o.emp_id = ?"
+        sql.append("AND o.emp_id = ?")
         params.append(parse_int(filters["emp_id"]))
 
     process = None
@@ -320,78 +397,81 @@ def list_orders(user, filters=None):
     elif filters.get("type"):
         process = find_process(slug=filters["type"])
     if process:
-        sql += " AND o.process_id = ?"
+        sql.append("AND o.process_id = ?")
         params.append(process["id"])
 
     if filters.get("kind") in ("co", "pd"):
         if filters["kind"] == "pd":
-            sql += " AND o.co LIKE ?"
+            sql.append("AND o.co LIKE ?")
             params.append(f"{PD_PREFIX}%")
         else:
-            sql += " AND o.co NOT LIKE ?"
+            sql.append("AND o.co NOT LIKE ?")
             params.append(f"{PD_PREFIX}%")
 
     date_from = str(filters.get("from") or "").strip()
     date_to = str(filters.get("to") or "").strip()
     if date_from:
-        sql += " AND substr(replace(o.created_at, ' ', 'T'), 1, 10) >= ?"
+        sql.append("AND o.created_at >= ?")
         params.append(date_from)
     if date_to:
-        sql += " AND substr(replace(o.created_at, ' ', 'T'), 1, 10) <= ?"
-        params.append(date_to)
+        next_day = _next_day(date_to)
+        if next_day:
+            sql.append("AND o.created_at < ?")
+            params.append(next_day)
 
     query = str(filters.get("q") or filters.get("query") or "").strip().lower()
-    sql += " ORDER BY o.created_at DESC, o.id DESC"
-    rows = db.execute(sql, params).fetchall()
-    cfg_map = _process_config_map(db)
-    items = [
-        serialize_order(row, row["emp_name"], row["process_name"], cfg_map.get(row["process_id"]))
-        for row in rows
-    ]
     if query:
-        items = [
-            item
-            for item in items
-            if query in " ".join(
-                [
-                    str(item.get("code") or ""),
-                    str(item.get("employee_id") or ""),
-                    str(item.get("emp_name") or ""),
-                    str(item.get("note") or ""),
-                    str(item.get("process_name") or ""),
-                    str(item.get("type") or ""),
-                    "ma pd" if item.get("kind") == "pd" else "ma co",
-                ]
-            ).lower()
+        clauses = [
+            "instr(lower(o.co), ?) > 0",
+            "instr(lower(ifnull(o.note, '')), ?) > 0",
+            "instr(lower(ifnull(e.name, '')), ?) > 0",
+            "instr(lower(ifnull(p.name, '')), ?) > 0",
+            "instr(lower(CAST(o.emp_id AS TEXT)), ?) > 0",
         ]
-    return items
+        qparams = [query] * 5
+        slug_ids = [
+            item["id"]
+            for item in process_catalog(db)["items"]
+            if item.get("slug") and query in item["slug"].lower()
+        ]
+        if slug_ids:
+            clauses.append(f"o.process_id IN ({placeholders(len(slug_ids))})")
+            qparams.extend(slug_ids)
+        if query in ("pd", "ma pd") or "ma pd" in query:
+            clauses.append("o.co LIKE ?")
+            qparams.append(f"{PD_PREFIX}%")
+        if query in ("co", "ma co") or "ma co" in query:
+            clauses.append("o.co NOT LIKE ?")
+            qparams.append(f"{PD_PREFIX}%")
+        sql.append("AND (" + " OR ".join(clauses) + ")")
+        params.extend(qparams)
+
+    sql.append("ORDER BY o.created_at DESC, o.id DESC")
+    rows = db.execute(" ".join(sql), params).fetchall()
+    return _serialize_rows(rows, process_catalog(db)["cfg"])
 
 
 def get_order(order_id, user=None):
-    db = get_db()
-    row = db.execute(
-        """
-        SELECT o.id, o.co, o.emp_id, o.process_id, o.note, o.created_at,
-               e.name AS emp_name, p.name AS process_name
-        FROM oders o
-        LEFT JOIN emp e ON e.id = o.emp_id
-        LEFT JOIN process p ON p.id = o.process_id
-        WHERE o.id = ?
-        """,
-        (order_id,),
-    ).fetchone()
-    if not row:
-        return None
-    if user and user["role"] != "manager" and row["emp_id"] != user["id"]:
-        return None
-    _cfg_row, cfg = get_process_config(row["process_id"], db)
-    return serialize_order(row, row["emp_name"], row["process_name"], cfg)
+    items = get_orders_by_ids([order_id], user)
+    return items[0] if items else None
+
+
+def _existing_codes(db, process_id, stored_codes):
+    found = {}
+    for chunk in batched(stored_codes):
+        rows = db.execute(
+            f"SELECT id, co FROM oders WHERE process_id = ? AND co IN ({placeholders(len(chunk))})",
+            [process_id, *chunk],
+        )
+        for row in rows:
+            found[row["co"]] = row["id"]
+    return found
 
 
 def add_orders(user, payload):
     codes_raw = payload.get("codes")
     if isinstance(codes_raw, str):
-        codes_raw = [line for line in codes_raw.splitlines()]
+        codes_raw = codes_raw.splitlines()
     if not isinstance(codes_raw, list):
         codes_raw = [payload.get("co") or payload.get("code")]
 
@@ -423,38 +503,46 @@ def add_orders(user, payload):
     emp_id = user["id"]
     note = normalize_note(payload.get("note"))
     created_at = now_iso()
-    added = []
+    stored_list = [(code, encode_co(code, kind)) for code in codes]
+    added_ids = []
     duplicates = []
 
     with transaction() as db:
+        existing = _existing_codes(db, process["id"], [stored for _code, stored in stored_list])
+        to_insert = []
+        insert_codes = []
         _cfg_row, cfg = get_process_config(process["id"], db)
-        order_seconds = cfg.get("order_seconds") if isinstance(cfg.get("order_seconds"), dict) else {}
-        for code in codes:
-            stored = encode_co(code, kind)
-            existing = db.execute(
-                "SELECT id FROM oders WHERE co = ? AND process_id = ?",
-                (stored, process["id"]),
-            ).fetchone()
-            if existing:
+        order_seconds = dict(cfg.get("order_seconds") if isinstance(cfg.get("order_seconds"), dict) else {})
+        for code, stored in stored_list:
+            if stored in existing:
                 duplicates.append(code)
                 if seconds is not None:
-                    order_seconds[str(existing["id"])] = seconds
+                    order_seconds[str(existing[stored])] = seconds
                 continue
-            cursor = db.execute(
+            to_insert.append((stored, emp_id, process["id"], note, created_at))
+            insert_codes.append(stored)
+            existing[stored] = None
+        if to_insert:
+            db.executemany(
                 """
                 INSERT INTO oders (co, emp_id, process_id, note, created_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (stored, emp_id, process["id"], note, created_at),
+                to_insert,
             )
-            if seconds is not None:
-                order_seconds[str(cursor.lastrowid)] = seconds
-            added.append(cursor.lastrowid)
+            inserted = _existing_codes(db, process["id"], insert_codes)
+            for stored in insert_codes:
+                order_id = inserted.get(stored)
+                if order_id is None:
+                    continue
+                added_ids.append(order_id)
+                if seconds is not None:
+                    order_seconds[str(order_id)] = seconds
         if seconds is not None:
             cfg["order_seconds"] = order_seconds
             save_process_config(process["id"], cfg, db)
 
-    items = [get_order(order_id, user) for order_id in added]
+    items = get_orders_by_ids(added_ids, user)
     return {"added": items, "duplicates": duplicates, "orders": items}, ""
 
 
@@ -470,10 +558,13 @@ def update_order(order_id, user, payload):
         return None, "Nhập mã đơn."
     note = normalize_note(payload["note"] if "note" in payload else current["note"])
     kind = get_kind(payload["kind"] if "kind" in payload else current["kind"])
-    process = find_process(
-        payload.get("process_id"),
-        payload.get("type") or payload.get("slug"),
-    ) if ("process_id" in payload or "type" in payload or "slug" in payload) else get_process(current["process_id"])
+    if "process_id" in payload or "type" in payload or "slug" in payload:
+        process = find_process(
+            payload.get("process_id"),
+            payload.get("type") or payload.get("slug"),
+        )
+    else:
+        process = get_process(current["process_id"])
     if not process:
         return None, "Chọn công đoạn."
     if kind == "pd" and not process["allows_pd"]:
@@ -497,50 +588,97 @@ def update_order(order_id, user, payload):
             (stored, process["id"], note, order_id),
         )
         if current["process_id"] != process["id"]:
-            _old_row, old_cfg = get_process_config(current["process_id"], db)
-            order_seconds = old_cfg.get("order_seconds") if isinstance(old_cfg.get("order_seconds"), dict) else {}
-            moved = order_seconds.pop(str(order_id), None)
-            old_cfg["order_seconds"] = order_seconds
-            save_process_config(current["process_id"], old_cfg, db)
-            if moved is not None:
-                _new_row, new_cfg = get_process_config(process["id"], db)
-                new_seconds = new_cfg.get("order_seconds") if isinstance(new_cfg.get("order_seconds"), dict) else {}
-                new_seconds[str(order_id)] = moved
-                new_cfg["order_seconds"] = new_seconds
-                save_process_config(process["id"], new_cfg, db)
+            _move_order_seconds(db, order_id, current["process_id"], process["id"])
 
     return get_order(order_id, user), ""
 
 
-def delete_order(order_id, user):
-    current = get_order(order_id, user)
-    if not current:
-        return False, "Không tìm thấy đơn hàng."
-    if user["role"] != "manager" and current["emp_id"] != user["id"]:
-        return False, "Không thể xóa đơn của người khác."
-    with transaction() as db:
-        db.execute("DELETE FROM oders WHERE id = ?", (order_id,))
-        _cfg_row, cfg = get_process_config(current["process_id"], db)
-        order_seconds = cfg.get("order_seconds") if isinstance(cfg.get("order_seconds"), dict) else {}
+def _move_order_seconds(db, order_id, from_process_id, to_process_id):
+    _old_row, old_cfg = get_process_config(from_process_id, db)
+    order_seconds = dict(old_cfg.get("order_seconds") if isinstance(old_cfg.get("order_seconds"), dict) else {})
+    moved = order_seconds.pop(str(order_id), None)
+    old_cfg["order_seconds"] = order_seconds
+    save_process_config(from_process_id, old_cfg, db)
+    if moved is None:
+        return None
+    _new_row, new_cfg = get_process_config(to_process_id, db)
+    new_seconds = dict(new_cfg.get("order_seconds") if isinstance(new_cfg.get("order_seconds"), dict) else {})
+    new_seconds[str(order_id)] = moved
+    new_cfg["order_seconds"] = new_seconds
+    save_process_config(to_process_id, new_cfg, db)
+    return moved
+
+
+def _strip_order_seconds(db, process_id, order_ids):
+    if not order_ids:
+        return
+    _row, cfg = get_process_config(process_id, db)
+    order_seconds = dict(cfg.get("order_seconds") if isinstance(cfg.get("order_seconds"), dict) else {})
+    changed = False
+    for order_id in order_ids:
         if str(order_id) in order_seconds:
             order_seconds.pop(str(order_id), None)
-            cfg["order_seconds"] = order_seconds
-            save_process_config(current["process_id"], cfg, db)
-    return True, ""
+            changed = True
+    if changed:
+        cfg["order_seconds"] = order_seconds
+        save_process_config(process_id, cfg, db)
+
+
+def _delete_ids(db, ids):
+    for chunk in batched(ids):
+        db.execute(f"DELETE FROM oders WHERE id IN ({placeholders(len(chunk))})", chunk)
+
+
+def delete_order(order_id, user):
+    deleted, errors = delete_orders([order_id], user)
+    if deleted:
+        return True, ""
+    if errors:
+        return False, errors[0]["error"]
+    return False, "Không tìm thấy đơn hàng."
 
 
 def delete_orders(ids, user):
+    parsed = []
+    seen = set()
+    for item in ids:
+        order_id = parse_int(item)
+        if order_id is None or order_id in seen:
+            continue
+        seen.add(order_id)
+        parsed.append(order_id)
+    if not parsed:
+        return [], []
+
+    db = get_db()
+    found = {}
+    for chunk in batched(parsed):
+        rows = db.execute(
+            f"SELECT id, emp_id, process_id FROM oders WHERE id IN ({placeholders(len(chunk))})",
+            chunk,
+        )
+        for row in rows:
+            found[row["id"]] = row
+
     deleted = []
     errors = []
-    for order_id in ids:
-        parsed = parse_int(order_id)
-        if parsed is None:
+    allowed = []
+    for order_id in parsed:
+        row = found.get(order_id)
+        if not row or (user["role"] != "manager" and row["emp_id"] != user["id"]):
+            errors.append({"id": order_id, "error": "Không tìm thấy đơn hàng."})
             continue
-        ok, error = delete_order(parsed, user)
-        if ok:
-            deleted.append(parsed)
-        elif error:
-            errors.append({"id": parsed, "error": error})
+        allowed.append(row)
+        deleted.append(order_id)
+
+    if allowed:
+        by_process = defaultdict(list)
+        for row in allowed:
+            by_process[row["process_id"]].append(row["id"])
+        with transaction() as db:
+            _delete_ids(db, deleted)
+            for process_id, order_ids in by_process.items():
+                _strip_order_seconds(db, process_id, order_ids)
     return deleted, errors
 
 
@@ -554,8 +692,18 @@ def clear_orders(user):
             (user["id"],),
         ).fetchall()
     ids = [row["id"] for row in rows]
-    for order_id in ids:
-        delete_order(order_id, user)
+    if not ids:
+        return []
+    by_process = defaultdict(list)
+    for row in rows:
+        by_process[row["process_id"]].append(row["id"])
+    with transaction() as db:
+        if user["role"] == "manager":
+            db.execute("DELETE FROM oders")
+        else:
+            db.execute("DELETE FROM oders WHERE emp_id = ?", (user["id"],))
+        for process_id, order_ids in by_process.items():
+            _strip_order_seconds(db, process_id, order_ids)
     return ids
 
 
@@ -565,48 +713,73 @@ def set_order_seconds(order_ids, seconds, user):
     value, error = parse_seconds(seconds) if seconds is not None else (None, "")
     if error:
         return None, error
-    updated = []
-    with transaction() as db:
-        for order_id in order_ids:
-            parsed = parse_int(order_id)
-            if parsed is None:
-                continue
-            row = db.execute(
-                "SELECT id, process_id FROM oders WHERE id = ?",
-                (parsed,),
-            ).fetchone()
-            if not row:
-                continue
-            _cfg_row, cfg = get_process_config(row["process_id"], db)
-            order_seconds = cfg.get("order_seconds") if isinstance(cfg.get("order_seconds"), dict) else {}
-            if value is None:
-                order_seconds.pop(str(parsed), None)
-            else:
-                order_seconds[str(parsed)] = value
-            cfg["order_seconds"] = order_seconds
-            save_process_config(row["process_id"], cfg, db)
-            updated.append(parsed)
-    if not updated:
+    parsed = []
+    seen = set()
+    for item in order_ids:
+        order_id = parse_int(item)
+        if order_id is None or order_id in seen:
+            continue
+        seen.add(order_id)
+        parsed.append(order_id)
+    if not parsed:
         return None, "Không tìm thấy đơn hàng."
-    return [get_order(order_id, user) for order_id in updated], ""
+
+    with transaction() as db:
+        found = {}
+        for chunk in batched(parsed):
+            rows = db.execute(
+                f"SELECT id, process_id FROM oders WHERE id IN ({placeholders(len(chunk))})",
+                chunk,
+            )
+            for row in rows:
+                found[row["id"]] = row["process_id"]
+        updated = [order_id for order_id in parsed if order_id in found]
+        if not updated:
+            return None, "Không tìm thấy đơn hàng."
+        by_process = defaultdict(list)
+        for order_id in updated:
+            by_process[found[order_id]].append(order_id)
+        for process_id, ids in by_process.items():
+            _row, cfg = get_process_config(process_id, db)
+            order_seconds = dict(cfg.get("order_seconds") if isinstance(cfg.get("order_seconds"), dict) else {})
+            for order_id in ids:
+                key = str(order_id)
+                if value is None:
+                    order_seconds.pop(key, None)
+                else:
+                    order_seconds[key] = value
+            cfg["order_seconds"] = order_seconds
+            save_process_config(process_id, cfg, db)
+    return get_orders_by_ids(updated, user), ""
 
 
 def get_settings():
+    catalog = process_catalog()
     type_seconds = {}
     code_seconds = {}
-    for process in list_processes():
-        _row, cfg = get_process_config(process["id"])
-        if isinstance(cfg.get("seconds"), int):
+    for process in catalog["items"]:
+        cfg = catalog["cfg"].get(process["id"]) or {}
+        if isinstance(cfg.get("seconds"), int) and process["slug"]:
             type_seconds[process["slug"]] = cfg["seconds"]
         mapping = cfg.get("code_seconds") if isinstance(cfg.get("code_seconds"), dict) else {}
+        slug = process["slug"]
+        if not slug:
+            continue
         for code, seconds in mapping.items():
             if isinstance(seconds, int) and code:
-                code_seconds[f"{code}::{process['slug']}"] = seconds
+                code_seconds[f"{code}::{slug}"] = seconds
     return {"type_seconds": type_seconds, "code_seconds": code_seconds}
 
 
+def _resolve_process(type_id):
+    text = str(type_id) if type_id is not None else ""
+    if text.isdigit():
+        return find_process(process_id=text)
+    return find_process(slug=text)
+
+
 def save_type_seconds(type_id, raw_seconds):
-    process = find_process(slug=type_id) if not str(type_id).isdigit() else find_process(process_id=type_id)
+    process = _resolve_process(type_id)
     if not process:
         return None, "Không tìm thấy công đoạn."
     value, error = parse_seconds(raw_seconds) if raw_seconds is not None and raw_seconds != "" else (None, "")
@@ -624,7 +797,7 @@ def save_type_seconds(type_id, raw_seconds):
 
 
 def save_code_seconds(type_id, codes, raw_seconds):
-    process = find_process(slug=type_id) if not str(type_id).isdigit() else find_process(process_id=type_id)
+    process = _resolve_process(type_id)
     if not process:
         return None, "Không tìm thấy công đoạn."
     if not process["allows_pd"]:
@@ -644,7 +817,7 @@ def save_code_seconds(type_id, codes, raw_seconds):
         return None, "Nhập ít nhất một mã PD."
     with transaction() as db:
         _row, cfg = get_process_config(process["id"], db)
-        mapping = cfg.get("code_seconds") if isinstance(cfg.get("code_seconds"), dict) else {}
+        mapping = dict(cfg.get("code_seconds") if isinstance(cfg.get("code_seconds"), dict) else {})
         for code in unique:
             if value is None:
                 mapping.pop(code, None)
@@ -699,8 +872,11 @@ def delete_employee(emp_id):
     if not current:
         return False, "Không tìm thấy nhân viên."
     db = get_db()
-    used = db.execute("SELECT COUNT(*) AS n FROM oders WHERE emp_id = ?", (current["id"],)).fetchone()
-    if used and used["n"]:
+    used = db.execute(
+        "SELECT 1 FROM oders WHERE emp_id = ? LIMIT 1",
+        (current["id"],),
+    ).fetchone()
+    if used:
         return False, "Không thể xóa nhân viên đang có đơn hàng."
     with transaction() as db:
         db.execute("DELETE FROM emp WHERE id = ?", (current["id"],))
@@ -768,32 +944,28 @@ def delete_process(process_id):
         return False, "Không tìm thấy công đoạn."
     db = get_db()
     used = db.execute(
-        "SELECT COUNT(*) AS n FROM oders WHERE process_id = ?",
+        "SELECT 1 FROM oders WHERE process_id = ? LIMIT 1",
         (current["id"],),
     ).fetchone()
-    if used and used["n"]:
+    if used:
         return False, "Không thể xóa công đoạn đang có đơn hàng."
     with transaction() as db:
         db.execute("DELETE FROM process WHERE id = ?", (current["id"],))
         db.execute("DELETE FROM config WHERE process_id = ?", (current["id"],))
+    invalidate_catalog()
     return True, ""
 
 
 def list_config():
     db = get_db()
-    rows = db.execute(
-        "SELECT id, process_id, data FROM config ORDER BY id"
-    ).fetchall()
-    items = []
-    for row in rows:
-        items.append(
-            {
-                "id": row["id"],
-                "process_id": row["process_id"],
-                "data": parse_data(row["data"]),
-            }
-        )
-    return items
+    return [
+        {
+            "id": row["id"],
+            "process_id": row["process_id"],
+            "data": parse_data(row["data"]),
+        }
+        for row in db.execute("SELECT id, process_id, data FROM config ORDER BY id")
+    ]
 
 
 def upsert_config(payload):
@@ -812,6 +984,7 @@ def upsert_config(payload):
                 (process_id, dump_data(data), config_id),
             )
             saved_id = config_id
+            invalidate_catalog()
         elif process_id is None:
             save_system_config({**get_system_config(db), **data}, db)
             row = _system_config_row(db)
@@ -835,16 +1008,18 @@ def summarize_orders(orders, range_from=None, range_to=None):
     day_counts = defaultdict(lambda: defaultdict(int))
 
     for order in orders:
-        if order.get("kind") == "pd":
-            unique_pd.add(order.get("code"))
-        else:
-            unique_co.add(order.get("code"))
+        code = order.get("code")
         slug = order.get("type") or ""
+        is_pd = order.get("kind") == "pd"
+        if is_pd:
+            unique_pd.add(code)
+        else:
+            unique_co.add(code)
         type_counts[slug] += 1
         emp_id = order.get("employee_id") or "—"
-        bucket = employee_stats.setdefault(
-            emp_id,
-            {
+        bucket = employee_stats.get(emp_id)
+        if bucket is None:
+            bucket = {
                 "employee_id": emp_id,
                 "name": order.get("emp_name"),
                 "count": 0,
@@ -852,19 +1027,18 @@ def summarize_orders(orders, range_from=None, range_to=None):
                 "co_codes": set(),
                 "pd_codes": set(),
                 "by_type": defaultdict(int),
-            },
-        )
+            }
+            employee_stats[emp_id] = bucket
         bucket["count"] += 1
-        bucket["codes"].add(order.get("code"))
-        if order.get("kind") == "pd":
-            bucket["pd_codes"].add(order.get("code"))
+        bucket["codes"].add(code)
+        if is_pd:
+            bucket["pd_codes"].add(code)
         else:
-            bucket["co_codes"].add(order.get("code"))
+            bucket["co_codes"].add(code)
         bucket["by_type"][slug] += 1
         stamp = order.get("created_at")
         if stamp:
-            day = str(stamp)[:10]
-            day_counts[day][slug] += 1
+            day_counts[str(stamp)[:10]][slug] += 1
 
     processes = list_processes()
     return {

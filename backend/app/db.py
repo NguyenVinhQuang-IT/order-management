@@ -48,16 +48,22 @@ CREATE INDEX IF NOT EXISTS config_process_id_idx
     ON config (process_id);
 """
 
+SQLITE_BIND_LIMIT = 400
+
 
 def get_db():
     if "db" not in g:
         path = Path(current_app.config["DATABASE"])
-        path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn = sqlite3.connect(path, timeout=5.0, detect_types=sqlite3.PARSE_DECLTYPES)
         conn.row_factory = sqlite3.Row
         conn.isolation_level = None
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA temp_store = MEMORY")
+        conn.execute("PRAGMA cache_size = -8000")
+        conn.execute("PRAGMA mmap_size = 268435456")
+        conn.execute("PRAGMA busy_timeout = 5000")
         g.db = conn
     return g.db
 
@@ -105,4 +111,14 @@ def parse_data(raw):
 
 
 def dump_data(value):
-    return json.dumps(value if isinstance(value, dict) else {}, ensure_ascii=False)
+    return json.dumps(value if isinstance(value, dict) else {}, ensure_ascii=False, separators=(",", ":"))
+
+
+def placeholders(count):
+    return ",".join("?" * count)
+
+
+def batched(items, size=SQLITE_BIND_LIMIT):
+    seq = list(items)
+    for start in range(0, len(seq), size):
+        yield seq[start : start + size]

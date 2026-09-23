@@ -18,7 +18,11 @@ def verify_password(password_hash, password):
 
 
 def _serializer():
-    return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="om-auth")
+    cached = current_app.extensions.get("om_serializer")
+    if cached is None:
+        cached = URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="om-auth")
+        current_app.extensions["om_serializer"] = cached
+    return cached
 
 
 def create_token(payload):
@@ -49,16 +53,23 @@ def get_current_user():
         g.current_user = None
         return None
 
-    from .services import get_employee
+    from .db import get_db
 
-    employee = get_employee(payload["id"])
-    if not employee:
+    row = get_db().execute(
+        "SELECT id, name FROM emp WHERE id = ?",
+        (payload["id"],),
+    ).fetchone()
+    if not row:
         g.current_user = None
         return None
 
-    employee["role"] = payload.get("role") or employee.get("role") or "employee"
-    g.current_user = employee
-    return employee
+    g.current_user = {
+        "id": row["id"],
+        "employee_id": str(row["id"]),
+        "name": row["name"],
+        "role": payload.get("role") or "employee",
+    }
+    return g.current_user
 
 
 def login_required(fn):

@@ -3,7 +3,7 @@ MAX_SECONDS = 99999
 PD_PREFIX = "PD|"
 TOKEN_MAX_AGE = 60 * 60 * 24 * 7
 
-PD_PROCESS_SLUGS = ("lam-don", "kiem-don")
+PD_PROCESS_SLUGS = frozenset({"lam-don", "kiem-don"})
 
 PROCESSES = (
     (1, "xep-ban-nhan-don", "Xếp bản nhận đơn"),
@@ -31,7 +31,7 @@ PROCESS_BY_SLUG = {slug: (pid, name) for pid, slug, name in PROCESSES}
 PROCESS_BY_ID = {pid: (slug, name) for pid, slug, name in PROCESSES}
 PROCESS_BY_NAME = {name: (pid, slug) for pid, slug, name in PROCESSES}
 
-ROLES = ("employee", "manager")
+ROLES = frozenset({"employee", "manager"})
 
 SEED_EMPLOYEES = (
     (1, "Quang", "employee", "123456"),

@@ -171,6 +171,42 @@ def test_manager_can_create_employee(client, login):
     assert me.get_json()["user"]["id"] == 10
 
 
+def test_bulk_delete_and_clear(client, login):
+    headers, _ = login()
+    created = client.post(
+        "/api/orders",
+        json={"codes": ["B1", "B2", "B3"], "type": "lam-don"},
+        headers=headers,
+    )
+    ids = [item["id"] for item in created.get_json()["added"]]
+    deleted = client.post(
+        "/api/orders/delete",
+        json={"ids": ids[:2]},
+        headers=headers,
+    )
+    assert deleted.status_code == 200
+    assert set(deleted.get_json()["deleted"]) == set(ids[:2])
+    remaining = client.get("/api/orders", headers=headers).get_json()["items"]
+    assert [item["code"] for item in remaining] == ["B3"]
+
+    cleared = client.post("/api/orders/clear", headers=headers)
+    assert cleared.status_code == 200
+    assert client.get("/api/orders", headers=headers).get_json()["items"] == []
+
+
+def test_search_filters_in_sql(client, login):
+    headers, _ = login()
+    client.post(
+        "/api/orders",
+        json={"codes": ["ALPHA", "BETA"], "type": "lam-don", "note": "gấp"},
+        headers=headers,
+    )
+    found = client.get("/api/orders?q=alpha", headers=headers)
+    assert [item["code"] for item in found.get_json()["items"]] == ["ALPHA"]
+    noted = client.get("/api/orders?q=gấp", headers=headers)
+    assert {item["code"] for item in noted.get_json()["items"]} == {"ALPHA", "BETA"}
+
+
 def test_processes_seeded(client, login):
     headers, _ = login("169", "123456", "manager")
     response = client.get("/api/processes", headers=headers)

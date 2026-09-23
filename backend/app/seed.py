@@ -1,6 +1,16 @@
+from .auth import hash_password
 from .constants import PROCESSES, SEED_EMPLOYEES
 from .db import dump_data, get_db, parse_data
-from .auth import hash_password
+
+_PASSWORD_HASHES = {}
+
+
+def _hash(password):
+    hashed = _PASSWORD_HASHES.get(password)
+    if hashed is None:
+        hashed = hash_password(password)
+        _PASSWORD_HASHES[password] = hashed
+    return hashed
 
 
 def _table_count(db, table):
@@ -10,14 +20,21 @@ def _table_count(db, table):
 
 def seed_if_empty():
     db = get_db()
-    seeded = False
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        _seed(db)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
+
+def _seed(db):
     if _table_count(db, "process") == 0:
         db.executemany(
             "INSERT INTO process (id, name) VALUES (?, ?)",
             [(pid, name) for pid, _slug, name in PROCESSES],
         )
-        seeded = True
 
     existing_ids = {
         row["id"]: row["name"]
@@ -49,7 +66,6 @@ def seed_if_empty():
                 "INSERT INTO config (process_id, data) VALUES (?, ?)",
                 (pid, dump_data(payload)),
             )
-        seeded = True
 
     if _table_count(db, "emp") == 0:
         db.executemany(
@@ -63,7 +79,7 @@ def seed_if_empty():
         auth = payload.get("auth") if isinstance(payload.get("auth"), dict) else {}
         for emp_id, _name, role, password in SEED_EMPLOYEES:
             auth[str(emp_id)] = {
-                "password_hash": hash_password(password),
+                "password_hash": _hash(password),
                 "role": role,
             }
         payload["auth"] = auth
@@ -77,7 +93,3 @@ def seed_if_empty():
                 "INSERT INTO config (process_id, data) VALUES (?, ?)",
                 (None, dump_data(payload)),
             )
-        seeded = True
-
-    if seeded:
-        db.commit()
