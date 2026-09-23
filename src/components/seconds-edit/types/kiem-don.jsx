@@ -40,7 +40,7 @@ export default function KiemDonFields() {
   const saveCodeSeconds = useSetAtom(saveCodeSecondsAtom);
   const saveOneCodeSeconds = useSetAtom(saveOneCodeSecondsAtom);
 
-  useSecondsSubmit(() => {
+  useSecondsSubmit(async () => {
     const parsed = parseSecondsInput(value);
     if (parsed.error) {
       setFormError(parsed.error);
@@ -61,14 +61,14 @@ export default function KiemDonFields() {
         )
         .map((order) => recordKey(order));
       if (overrideKeys.length) {
-        const cleared = saveOrdersSeconds(overrideKeys, null);
+        const cleared = await saveOrdersSeconds(overrideKeys, null);
         if (cleared.error) {
           setFormError(cleared.error);
           notify(cleared.error, "error");
           return;
         }
       }
-      const result = saveTypeSeconds(orderType, value);
+      const result = await saveTypeSeconds(orderType, value);
       if (result.error) {
         setFormError(result.error);
         notify(result.error, "error");
@@ -80,7 +80,7 @@ export default function KiemDonFields() {
     }
 
     if (isEdit && entry?.kind === "order") {
-      const result = saveOrderSeconds(
+      const result = await saveOrderSeconds(
         entry.order.code,
         entry.order.type,
         parsed.value,
@@ -97,7 +97,7 @@ export default function KiemDonFields() {
     }
 
     if (isEdit && entry?.kind === "code") {
-      const result = saveOneCodeSeconds(entry.code, entry.type, value);
+      const result = await saveOneCodeSeconds(entry.code, entry.type, value);
       if (result.error) {
         setFormError(result.error);
         notify(result.error, "error");
@@ -120,13 +120,13 @@ export default function KiemDonFields() {
         notify(message, "error");
         return;
       }
-      const result = saveCodeSeconds(orderType, pdPreview.valid, value);
+      const result = await saveCodeSeconds(orderType, pdPreview.valid, value);
       if (result.error) {
         setFormError(result.error);
         notify(result.error, "error");
         return;
       }
-      const created = addOrders(
+      const created = await addOrders(
         result.codes,
         session?.employeeId,
         orderType,

@@ -3,7 +3,7 @@ import { useSetAtom } from "jotai";
 import { useNavigate } from "react-router-dom";
 import GlobalNav from "../components/GlobalNav";
 import { useToast } from "../components/Toast";
-import { ACCOUNTS, homePathForRole, ROLES, signInAtom } from "../auth";
+import { DEMO_ACCOUNTS, homePathForRole, ROLES, signInAtom } from "../auth";
 
 const EMPLOYEE_ID_PATTERN = /^\d{1,20}$/;
 
@@ -253,7 +253,7 @@ export default function Login() {
             </button>
 
             <div className="mt-2 text-center text-[12px] font-normal leading-[1.3] tracking-[-0.12px] text-ink-muted-48">
-              {ACCOUNTS.map((account) => {
+              {DEMO_ACCOUNTS.map((account) => {
                 const roleLabel =
                   ROLES.find((item) => item.id === account.role)?.label ??
                   account.role;

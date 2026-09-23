@@ -1,8 +1,10 @@
-import { lazy, Suspense } from "react";
-import { useAtomValue } from "jotai";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { useAtomValue, useSetAtom } from "jotai";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { onUnauthorized } from "./api";
 import { homePathForRole, isAuthenticatedAtom, sessionAtom } from "./auth";
 import Toast from "./components/Toast";
+import { loadWorkspaceAtom, resetWorkspaceAtom } from "./workspace";
 
 const Login = lazy(() => import("./pages/Login.jsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
@@ -44,10 +46,48 @@ function HomeRedirect() {
   return <Navigate to={homePathForRole(session.role)} replace />;
 }
 
+function SessionBootstrap({ children }) {
+  const session = useAtomValue(sessionAtom);
+  const loadWorkspace = useSetAtom(loadWorkspaceAtom);
+  const resetWorkspace = useSetAtom(resetWorkspaceAtom);
+  const [ready, setReady] = useState(!session);
+
+  useEffect(() => {
+    onUnauthorized(() => resetWorkspace());
+    return () => onUnauthorized(null);
+  }, [resetWorkspace]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!session) {
+        setReady(true);
+        return;
+      }
+      setReady(false);
+      try {
+        await loadWorkspace();
+      } catch {
+        /* 401 already signs out via onUnauthorized */
+      } finally {
+        if (!cancelled) setReady(true);
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [session, loadWorkspace, resetWorkspace]);
+
+  if (!ready) return <PageFallback />;
+  return children;
+}
+
 export default function App() {
   return (
     <>
       <Suspense fallback={<PageFallback />}>
+        <SessionBootstrap>
         <Routes>
           <Route
             path="/login"
@@ -91,6 +131,7 @@ export default function App() {
           />
           <Route path="*" element={<HomeRedirect />} />
         </Routes>
+        </SessionBootstrap>
       </Suspense>
       <Toast />
     </>

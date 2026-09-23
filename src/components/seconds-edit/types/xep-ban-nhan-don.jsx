@@ -30,7 +30,7 @@ export default function XepBanNhanDonFields() {
   const saveOrderSeconds = useSetAtom(updateOrderSecondsAtom);
   const saveOrdersSeconds = useSetAtom(updateOrdersSecondsAtom);
 
-  useSecondsSubmit(() => {
+  useSecondsSubmit(async () => {
     const parsed = parseSecondsInput(value);
     if (parsed.error) {
       setFormError(parsed.error);
@@ -51,14 +51,14 @@ export default function XepBanNhanDonFields() {
         )
         .map((order) => recordKey(order));
       if (overrideKeys.length) {
-        const cleared = saveOrdersSeconds(overrideKeys, null);
+        const cleared = await saveOrdersSeconds(overrideKeys, null);
         if (cleared.error) {
           setFormError(cleared.error);
           notify(cleared.error, "error");
           return;
         }
       }
-      const result = saveTypeSeconds(orderType, value);
+      const result = await saveTypeSeconds(orderType, value);
       if (result.error) {
         setFormError(result.error);
         notify(result.error, "error");
@@ -70,7 +70,7 @@ export default function XepBanNhanDonFields() {
     }
 
     if (isEdit && entry?.kind === "order") {
-      const result = saveOrderSeconds(
+      const result = await saveOrderSeconds(
         entry.order.code,
         entry.order.type,
         parsed.value,
@@ -92,7 +92,7 @@ export default function XepBanNhanDonFields() {
       return;
     }
 
-    const result = saveOrdersSeconds(selectedKeys, parsed.value);
+    const result = await saveOrdersSeconds(selectedKeys, parsed.value);
     if (result.error) {
       setFormError(result.error);
       notify(result.error, "error");

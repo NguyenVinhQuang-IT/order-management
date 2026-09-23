@@ -1,15 +1,13 @@
 import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
+import { api } from "./api";
 import {
   allowsPdCodes,
+  loadOrdersAtom,
   normalizeOrderCode,
   ORDER_TYPES,
   orderKey,
 } from "./orders";
-import { localJsonStorage } from "./storage";
 
-const STORAGE_KEY = "om_type_seconds";
-const CODE_SECONDS_KEY = "om_code_seconds";
 export const MAX_SECONDS = 99999;
 
 export function formatSeconds(value) {
@@ -164,27 +162,43 @@ export function sumSecondsByType(orders, typeSettings, codeSettings) {
   };
 }
 
-export const secondsSettingsAtom = atomWithStorage(
-  STORAGE_KEY,
-  {},
-  localJsonStorage,
-  { getOnInit: true },
-);
+export const secondsSettingsAtom = atom({});
 
 export const typeSecondsAtom = atom((get) =>
   normalizeSecondsMap(get(secondsSettingsAtom)),
 );
 
-export const saveTypeSecondsAtom = atom(null, (_get, set, draft) => {
+function applySettings(set, data) {
+  set(secondsSettingsAtom, data.type_seconds || {});
+  set(codeSecondsSettingsAtom, data.code_seconds || {});
+}
+
+async function applySettingsAndOrders(set, data) {
+  applySettings(set, data);
+  await set(loadOrdersAtom);
+}
+
+export const saveTypeSecondsAtom = atom(null, async (_get, set, draft) => {
   const { values, errors } = parseSecondsDraft(draft);
   if (Object.keys(errors).length) {
     return { error: Object.values(errors)[0], errors, values: null };
   }
-  set(secondsSettingsAtom, values);
-  return { error: "", errors: {}, values };
+  try {
+    for (const type of ORDER_TYPES) {
+      await api("/settings/type-seconds", {
+        method: "PUT",
+        body: { type: type.id, seconds: values[type.id] ?? null },
+      });
+    }
+    const data = await api("/settings");
+    await applySettingsAndOrders(set, data);
+    return { error: "", errors: {}, values };
+  } catch (error) {
+    return { error: error.message, errors: {}, values: null };
+  }
 });
 
-export const saveOneTypeSecondsAtom = atom(null, (get, set, typeId, raw) => {
+export const saveOneTypeSecondsAtom = atom(null, async (get, set, typeId, raw) => {
   if (!ORDER_TYPES.some((item) => item.id === typeId)) {
     return { error: "Không tìm thấy công đoạn." };
   }
@@ -192,29 +206,25 @@ export const saveOneTypeSecondsAtom = atom(null, (get, set, typeId, raw) => {
   if (parsed.error) {
     return { error: parsed.error };
   }
-  const current = normalizeSecondsMap(get(secondsSettingsAtom));
-  const next = { ...current };
-  if (parsed.value == null) {
-    delete next[typeId];
-  } else {
-    next[typeId] = parsed.value;
+  try {
+    const data = await api("/settings/type-seconds", {
+      method: "PUT",
+      body: { type: typeId, seconds: parsed.value },
+    });
+    await applySettingsAndOrders(set, data);
+    return { error: "", value: parsed.value };
+  } catch (error) {
+    return { error: error.message };
   }
-  set(secondsSettingsAtom, next);
-  return { error: "", value: parsed.value };
 });
 
-export const codeSecondsSettingsAtom = atomWithStorage(
-  CODE_SECONDS_KEY,
-  {},
-  localJsonStorage,
-  { getOnInit: true },
-);
+export const codeSecondsSettingsAtom = atom({});
 
 export const codeSecondsAtom = atom((get) =>
   normalizeCodeSecondsMap(get(codeSecondsSettingsAtom)),
 );
 
-export const saveCodeSecondsAtom = atom(null, (get, set, typeId, codes, raw) => {
+export const saveCodeSecondsAtom = atom(null, async (_get, set, typeId, codes, raw) => {
   if (!allowsPdCodes(typeId)) {
     return { error: "Công đoạn này không dùng mã PD." };
   }
@@ -238,16 +248,19 @@ export const saveCodeSecondsAtom = atom(null, (get, set, typeId, codes, raw) => 
     return { error: "Nhập ít nhất một mã PD." };
   }
 
-  const current = normalizeCodeSecondsMap(get(codeSecondsSettingsAtom));
-  const next = { ...current };
-  for (const code of unique) {
-    next[codeSecondsKey(code, typeId)] = parsed.value;
+  try {
+    const data = await api("/settings/code-seconds", {
+      method: "PUT",
+      body: { type: typeId, codes: unique, seconds: parsed.value },
+    });
+    await applySettingsAndOrders(set, data);
+    return { error: "", codes: unique, value: parsed.value };
+  } catch (error) {
+    return { error: error.message };
   }
-  set(codeSecondsSettingsAtom, next);
-  return { error: "", codes: unique, value: parsed.value };
 });
 
-export const saveOneCodeSecondsAtom = atom(null, (get, set, code, typeId, raw) => {
+export const saveOneCodeSecondsAtom = atom(null, async (_get, set, code, typeId, raw) => {
   if (!allowsPdCodes(typeId)) {
     return { error: "Công đoạn này không dùng mã PD." };
   }
@@ -259,14 +272,20 @@ export const saveOneCodeSecondsAtom = atom(null, (get, set, code, typeId, raw) =
   if (parsed.error) {
     return { error: parsed.error };
   }
-  const current = normalizeCodeSecondsMap(get(codeSecondsSettingsAtom));
-  const next = { ...current };
-  const key = codeSecondsKey(normalized, typeId);
-  if (parsed.value == null) {
-    delete next[key];
-  } else {
-    next[key] = parsed.value;
+  try {
+    const data = await api("/settings/code-seconds", {
+      method: "PUT",
+      body: { type: typeId, codes: [normalized], seconds: parsed.value },
+    });
+    await applySettingsAndOrders(set, data);
+    return { error: "", value: parsed.value };
+  } catch (error) {
+    return { error: error.message };
   }
-  set(codeSecondsSettingsAtom, next);
-  return { error: "", value: parsed.value };
+});
+
+export const loadSettingsAtom = atom(null, async (_get, set) => {
+  const data = await api("/settings");
+  applySettings(set, data);
+  return data;
 });

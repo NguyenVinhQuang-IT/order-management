@@ -159,14 +159,20 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
     if (formError) setFormError("");
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     if (!orderType || typeof submitRef.current !== "function") {
       setFormError("Chọn công đoạn.");
       notify("Chọn công đoạn.", "error");
       return;
     }
-    submitRef.current();
+    try {
+      await submitRef.current();
+    } catch (error) {
+      const message = error.message || "Không thể lưu số giây.";
+      setFormError(message);
+      notify(message, "error");
+    }
   }
 
   const typeLabel =

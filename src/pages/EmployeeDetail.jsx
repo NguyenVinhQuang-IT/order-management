@@ -2,9 +2,11 @@ import { useEffect, useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { Link, useParams } from "react-router-dom";
 import {
+  employeesAtom,
   getEmployee,
   getEmployeeName,
   getRoleLabel,
+  sameEmployeeId,
 } from "../auth";
 import GlobalNav from "../components/GlobalNav";
 import OrderFilters from "../components/OrderFilters";
@@ -67,8 +69,9 @@ function MetricCard({ label, value }) {
 export default function EmployeeDetail() {
   const { employeeId: rawId = "" } = useParams();
   const employeeId = decodeURIComponent(rawId);
-  const account = getEmployee(employeeId);
-  const name = account?.name || getEmployeeName(employeeId);
+  const employees = useAtomValue(employeesAtom);
+  const account = getEmployee(employeeId, employees);
+  const name = account?.name || getEmployeeName(employeeId, employees);
   const roleLabel = account ? getRoleLabel(account.role) : "—";
   const orders = useAtomValue(ordersAtom);
   const visibleOrders = useAtomValue(filteredOrdersAtom);
@@ -80,11 +83,14 @@ export default function EmployeeDetail() {
   const codeSeconds = useAtomValue(codeSecondsAtom);
 
   const theirs = useMemo(
-    () => visibleOrders.filter((order) => order.employeeId === employeeId),
+    () =>
+      visibleOrders.filter((order) =>
+        sameEmployeeId(order.employeeId, employeeId),
+      ),
     [visibleOrders, employeeId],
   );
   const allTheirs = useMemo(
-    () => orders.filter((order) => order.employeeId === employeeId),
+    () => orders.filter((order) => sameEmployeeId(order.employeeId, employeeId)),
     [orders, employeeId],
   );
   const stats = useMemo(

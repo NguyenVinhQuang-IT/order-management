@@ -11,15 +11,24 @@ Bảng hệ thống `sqlite_master` / `sqlite_sequence` không dùng trong API.
 
 ## Chạy server
 
+Chạy backend rồi frontend (Vite proxy `/api` sang cổng 5000):
+
 ```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python run.py
+python backend/run.py
+npm run dev
 ```
 
-API: `http://127.0.0.1:5000/api`
+Mở `http://localhost:5173`. Đăng nhập bằng tài khoản seed, đơn hàng/nhân viên/cài đặt giây đi qua API.
+
+Từ thư mục gốc project hoặc `backend/`:
+
+```powershell
+python backend/run.py
+```
+
+hoặc double-click `backend/start.bat`.
+
+Lần đầu sẽ tự tạo `.venv` và cài Flask nếu chưa có. API: `http://127.0.0.1:5000/api`
 
 Vite (frontend) đã proxy `/api` tới cổng 5000.
 

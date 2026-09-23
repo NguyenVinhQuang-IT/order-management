@@ -6,8 +6,8 @@ import {
   isAuthenticatedAtom,
   isManagerAtom,
   sessionAtom,
-  signOutAtom,
 } from "../auth";
+import { resetWorkspaceAtom } from "../workspace";
 
 export const navLinkClass =
   "cursor-pointer border-0 bg-transparent p-0 text-[12px] font-normal leading-none tracking-[-0.12px] text-white hover:text-body-muted focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus";
@@ -33,7 +33,7 @@ export default function GlobalNav({ trailing }) {
   const authenticated = useAtomValue(isAuthenticatedAtom);
   const isManager = useAtomValue(isManagerAtom);
   const session = useAtomValue(sessionAtom);
-  const signOut = useSetAtom(signOutAtom);
+  const signOut = useSetAtom(resetWorkspaceAtom);
   const navigate = useNavigate();
   const notify = useToast();
 

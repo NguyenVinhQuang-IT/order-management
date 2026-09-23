@@ -36,7 +36,7 @@ export default function KiemDonFields() {
   const updateOrder = useSetAtom(updateOrderAtom);
   const saveOrderSeconds = useSetAtom(updateOrderSecondsAtom);
 
-  useOrderEntrySubmit(() => {
+  useOrderEntrySubmit(async () => {
     if (isEdit) {
       const code = normalizeOrderCode(text);
       if (!code) {
@@ -55,7 +55,7 @@ export default function KiemDonFields() {
         }
       }
 
-      const result = updateOrder(order.code, order.type, {
+      const result = await updateOrder(order.code, order.type, {
         code,
         type: orderType,
         note,
@@ -67,7 +67,7 @@ export default function KiemDonFields() {
         return;
       }
       if (isManager) {
-        const secondsResult = saveOrderSeconds(
+        const secondsResult = await saveOrderSeconds(
           code,
           orderType,
           parsedSeconds.value,
@@ -97,7 +97,7 @@ export default function KiemDonFields() {
       return;
     }
 
-    const result = addOrders(
+    const result = await addOrders(
       valid,
       session?.employeeId,
       orderType,

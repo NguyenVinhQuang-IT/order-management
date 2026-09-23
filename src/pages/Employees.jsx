@@ -1,22 +1,23 @@
 import { useEffect, useMemo } from "react";
 import { useAtomValue } from "jotai";
-import { listDirectoryEmployees } from "../auth";
+import { employeesAtom, listDirectoryEmployees, sameEmployeeId } from "../auth";
 import EmployeeDirectory from "../components/EmployeeDirectory";
 import GlobalNav from "../components/GlobalNav";
 import { ordersAtom, summarizeOrders } from "../orders";
 
 export default function Employees() {
+  const employees = useAtomValue(employeesAtom);
   const orders = useAtomValue(ordersAtom);
   const stats = useMemo(() => summarizeOrders(orders), [orders]);
   const rows = useMemo(() => {
-    const byId = new Map(
-      stats.byEmployee.map((item) => [item.employeeId, item]),
-    );
-    return listDirectoryEmployees().map((person) => ({
+    return listDirectoryEmployees(employees).map((person) => ({
       ...person,
-      count: byId.get(person.employeeId)?.count ?? 0,
+      count:
+        stats.byEmployee.find((item) =>
+          sameEmployeeId(item.employeeId, person.employeeId),
+        )?.count ?? 0,
     }));
-  }, [stats.byEmployee]);
+  }, [employees, stats.byEmployee]);
 
   useEffect(() => {
     document.title = "Nhân viên";

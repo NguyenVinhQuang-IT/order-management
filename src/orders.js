@@ -1,9 +1,7 @@
 import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
-import { sessionAtom } from "./auth";
-import { sessionJsonStorage } from "./storage";
+import { api, mapOrder } from "./api";
+import { sameEmployeeId, sessionAtom } from "./auth";
 
-const STORAGE_KEY = "om_orders";
 export const MAX_ORDERS_PER_ENTRY = 50;
 
 export const RECEIVE_ORDER_TYPE_ID = "xep-ban-nhan-don";
@@ -229,7 +227,7 @@ export function filterOrdersByKind(orders, kind) {
 export function filterOrdersByEmployee(orders, employeeId) {
   const list = Array.isArray(orders) ? orders : [];
   if (!employeeId) return [];
-  return list.filter((order) => order.employeeId === employeeId);
+  return list.filter((order) => sameEmployeeId(order.employeeId, employeeId));
 }
 
 export function filterOrders(orders, { from, to, query, type, kind } = {}) {
@@ -510,9 +508,19 @@ export function updateOrdersSeconds(current, keys, seconds) {
   return { orders: next, error: "" };
 }
 
-export const ordersAtom = atomWithStorage(STORAGE_KEY, [], sessionJsonStorage, {
-  getOnInit: true,
-});
+export const ordersAtom = atom([]);
+export const ordersLoadingAtom = atom(false);
+
+async function refreshOrders(set) {
+  const data = await api("/orders");
+  const items = (data.items || []).map(mapOrder);
+  set(ordersAtom, items);
+  return items;
+}
+
+function findOrder(current, code, type, kind) {
+  return current.find((order) => sameRecord(order, code, type, kind));
+}
 
 export const dateFromAtom = atom("");
 export const dateToAtom = atom("");
@@ -551,110 +559,161 @@ export const hasActiveFiltersAtom = atom((get) =>
 function ownsOrder(session, order) {
   if (!session || !order) return false;
   if (session.role === "manager") return true;
-  return order.employeeId === session.employeeId;
+  return sameEmployeeId(order.employeeId, session.employeeId);
 }
 
 export const addOrdersAtom = atom(
   null,
-  (get, set, codes, employeeId, type, note = "", seconds = null, kind = "co") => {
-    const session = get(sessionAtom);
-    const actorId = session?.employeeId || employeeId;
-    const result = addOrders(
-      get(ordersAtom),
-      codes,
-      actorId,
-      type,
-      note,
-      seconds,
-      kind,
-    );
-    set(ordersAtom, result.orders);
-    return result;
+  async (get, set, codes, _employeeId, type, note = "", seconds = null, kind = "co") => {
+    const current = get(ordersAtom);
+    try {
+      const data = await api("/orders", {
+        method: "POST",
+        body: { codes, type, note, seconds, kind: getOrderKind(kind) },
+      });
+      const orders = await refreshOrders(set);
+      return {
+        orders,
+        added: (data.added || []).map(mapOrder),
+        duplicates: data.duplicates || [],
+        error: "",
+      };
+    } catch (error) {
+      return { orders: current, added: [], duplicates: [], error: error.message };
+    }
   },
 );
 
-export const removeOrderAtom = atom(null, (get, set, code, type, kind = "co") => {
+export const removeOrderAtom = atom(null, async (get, set, code, type, kind = "co") => {
   const session = get(sessionAtom);
   const current = get(ordersAtom);
-  const order = current.find((item) => sameRecord(item, code, type, kind));
-  if (!ownsOrder(session, order)) return current;
-  const next = removeOrder(current, code, type, kind);
-  set(ordersAtom, next);
-  return next;
+  const order = findOrder(current, code, type, kind);
+  if (!ownsOrder(session, order) || !order?.id) return current;
+  try {
+    await api(`/orders/${order.id}`, { method: "DELETE" });
+    const next = removeOrder(current, code, type, kind);
+    set(ordersAtom, next);
+    return next;
+  } catch {
+    return current;
+  }
 });
 
-export const removeOrdersByKeysAtom = atom(null, (get, set, keys) => {
+export const removeOrdersByKeysAtom = atom(null, async (get, set, keys) => {
   const session = get(sessionAtom);
   const current = get(ordersAtom);
-  const allowed =
-    session?.role === "manager"
-      ? keys
-      : [...keys].filter((key) => {
-          const order = current.find((item) => recordKey(item) === key);
-          return ownsOrder(session, order);
-        });
-  const next = removeOrdersByKeys(current, allowed);
-  set(ordersAtom, next);
-  return next;
+  const allowed = [...keys]
+    .map((key) => current.find((item) => recordKey(item) === key))
+    .filter((order) => ownsOrder(session, order) && order?.id);
+  if (!allowed.length) return current;
+  try {
+    await api("/orders/delete", {
+      method: "POST",
+      body: { ids: allowed.map((order) => order.id) },
+    });
+    const next = removeOrdersByKeys(current, allowed.map((order) => recordKey(order)));
+    set(ordersAtom, next);
+    return next;
+  } catch {
+    return current;
+  }
 });
 
 export const updateOrderAtom = atom(
   null,
-  (get, set, originalCode, originalType, patch) => {
+  async (get, set, originalCode, originalType, patch) => {
     const session = get(sessionAtom);
     const current = get(ordersAtom);
-    const existing = current.find((item) =>
-      sameRecord(item, originalCode, originalType, patch?.kind),
-    );
+    const existing = findOrder(current, originalCode, originalType, patch?.kind);
     if (!ownsOrder(session, existing)) {
       return { orders: current, error: "Không thể sửa đơn của người khác." };
     }
-    const result = updateOrder(current, originalCode, originalType, patch);
-    if (!result.error) {
-      set(ordersAtom, result.orders);
+    const local = updateOrder(current, originalCode, originalType, patch);
+    if (local.error) return local;
+    if (!existing?.id) {
+      return { orders: current, error: "Không tìm thấy đơn hàng." };
     }
-    return result;
+    try {
+      await api(`/orders/${existing.id}`, {
+        method: "PUT",
+        body: {
+          code: patch.code,
+          type: patch.type,
+          note: patch.note,
+          kind: getOrderKind(patch.kind),
+        },
+      });
+      const orders = await refreshOrders(set);
+      return { orders, error: "" };
+    } catch (error) {
+      return { orders: current, error: error.message };
+    }
   },
 );
 
 export const updateOrderSecondsAtom = atom(
   null,
-  (get, set, code, type, seconds, kind = "co") => {
+  async (get, set, code, type, seconds, kind = "co") => {
     const current = get(ordersAtom);
     if (get(sessionAtom)?.role !== "manager") {
       return { orders: current, error: "Chỉ quản lý mới sửa được số giây." };
     }
-    const result = updateOrderSeconds(current, code, type, seconds, kind);
-    if (!result.error) {
-      set(ordersAtom, result.orders);
+    const order = findOrder(current, code, type, kind);
+    if (!order?.id) {
+      return { orders: current, error: "Không tìm thấy đơn hàng." };
     }
-    return result;
+    try {
+      await api(`/orders/${order.id}/seconds`, {
+        method: "PUT",
+        body: { seconds },
+      });
+      const orders = await refreshOrders(set);
+      return { orders, error: "" };
+    } catch (error) {
+      return { orders: current, error: error.message };
+    }
   },
 );
 
-export const updateOrdersSecondsAtom = atom(null, (get, set, keys, seconds) => {
+export const updateOrdersSecondsAtom = atom(null, async (get, set, keys, seconds) => {
   const current = get(ordersAtom);
   if (get(sessionAtom)?.role !== "manager") {
     return { orders: current, error: "Chỉ quản lý mới sửa được số giây." };
   }
-  const result = updateOrdersSeconds(current, keys, seconds);
-  if (!result.error) {
-    set(ordersAtom, result.orders);
+  const ids = [...keys]
+    .map((key) => current.find((item) => recordKey(item) === key)?.id)
+    .filter(Boolean);
+  if (!ids.length) {
+    return { orders: current, error: "Chọn ít nhất một mã đơn." };
   }
-  return result;
+  try {
+    await api("/orders/seconds", {
+      method: "PUT",
+      body: { ids, seconds },
+    });
+    const orders = await refreshOrders(set);
+    return { orders, error: "" };
+  } catch (error) {
+    return { orders: current, error: error.message };
+  }
 });
 
-export const clearOrdersAtom = atom(null, (get, set) => {
+export const clearOrdersAtom = atom(null, async (get, set) => {
   const session = get(sessionAtom);
   const current = get(ordersAtom);
   if (!session) return current;
-  if (session.role === "manager") {
-    set(ordersAtom, []);
-    return [];
+  try {
+    await api("/orders/clear", { method: "POST" });
+    const next = session.role === "manager"
+      ? []
+      : current.filter((order) => order.employeeId !== session.employeeId);
+    set(ordersAtom, next);
+    return next;
+  } catch {
+    return current;
   }
-  const next = current.filter(
-    (order) => order.employeeId !== session.employeeId,
-  );
-  set(ordersAtom, next);
-  return next;
+});
+
+export const loadOrdersAtom = atom(null, async (_get, set) => {
+  return refreshOrders(set);
 });

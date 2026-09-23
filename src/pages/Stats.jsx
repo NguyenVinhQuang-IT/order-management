@@ -1,6 +1,12 @@
 import { useEffect, useMemo } from "react";
 import { useAtomValue } from "jotai";
-import { getEmployee, getEmployeeName, listDirectoryEmployees } from "../auth";
+import {
+  employeesAtom,
+  getEmployee,
+  getEmployeeName,
+  listDirectoryEmployees,
+  sameEmployeeId,
+} from "../auth";
 import EmployeeDirectory from "../components/EmployeeDirectory";
 import GlobalNav from "../components/GlobalNav";
 import OrderFilters from "../components/OrderFilters";
@@ -42,6 +48,7 @@ function MetricCard({ label, value }) {
 const typeTableCols = "desk:grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,0.7fr)]";
 
 export default function Stats() {
+  const employees = useAtomValue(employeesAtom);
   const orders = useAtomValue(ordersAtom);
   const visibleOrders = useAtomValue(filteredOrdersAtom);
   const dateFrom = useAtomValue(dateFromAtom);
@@ -61,28 +68,28 @@ export default function Stats() {
   const employeeRows = useMemo(
     () =>
       stats.byEmployee
-        .filter((item) => getEmployee(item.employeeId))
+        .filter((item) => getEmployee(item.employeeId, employees))
         .map((item) => {
-          const theirs = visibleOrders.filter(
-            (order) => (order.employeeId || "—") === item.employeeId,
+          const theirs = visibleOrders.filter((order) =>
+            sameEmployeeId(order.employeeId, item.employeeId),
           );
           return {
             ...item,
-            name: getEmployeeName(item.employeeId),
+            name: getEmployeeName(item.employeeId, employees),
             seconds: sumOrderSeconds(theirs, typeSeconds, codeSeconds),
           };
         }),
-    [stats.byEmployee, visibleOrders, typeSeconds, codeSeconds],
+    [stats.byEmployee, visibleOrders, typeSeconds, codeSeconds, employees],
   );
   const directoryRows = useMemo(() => {
-    const byId = new Map(
-      employeeRows.map((item) => [item.employeeId, item]),
-    );
-    return listDirectoryEmployees().map((person) => ({
+    return listDirectoryEmployees(employees).map((person) => ({
       ...person,
-      count: byId.get(person.employeeId)?.count ?? 0,
+      count:
+        employeeRows.find((item) =>
+          sameEmployeeId(item.employeeId, person.employeeId),
+        )?.count ?? 0,
     }));
-  }, [employeeRows]);
+  }, [employeeRows, employees]);
   const emptyMessage =
     orders.length === 0
       ? "Chưa có đơn hàng."

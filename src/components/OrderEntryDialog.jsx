@@ -76,14 +76,20 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
 
   if (!open) return null;
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     if (!orderType || typeof submitRef.current !== "function") {
       setFormError("Chọn công đoạn.");
       notify("Chọn công đoạn.", "error");
       return;
     }
-    submitRef.current();
+    try {
+      await submitRef.current();
+    } catch (error) {
+      const message = error.message || "Không thể lưu đơn hàng.";
+      setFormError(message);
+      notify(message, "error");
+    }
   }
 
   function handleCtrlEnter(event) {

@@ -1,28 +1,14 @@
 import { atom } from "jotai";
 import { atomWithStorage, RESET } from "jotai/utils";
+import { api, clearToken, mapEmployee, setToken } from "./api";
 import { sessionJsonStorage } from "./storage";
 
 const STORAGE_KEY = "om_session";
 
-const ACCOUNTS = [
-  {
-    employeeId: "001",
-    password: "123456",
-    name: "Quang",
-    role: "employee",
-  },
-  {
-    employeeId: "002",
-    password: "123456",
-    name: "Lan",
-    role: "employee",
-  },
-  {
-    employeeId: "169",
-    password: "123456",
-    name: "Trúc",
-    role: "manager",
-  },
+export const DEMO_ACCOUNTS = [
+  { employeeId: "1", password: "123456", name: "Quang", role: "employee" },
+  { employeeId: "2", password: "123456", name: "Lan", role: "employee" },
+  { employeeId: "169", password: "123456", name: "Trúc", role: "manager" },
 ];
 
 export const ROLES = [
@@ -34,25 +20,32 @@ export function getRoleLabel(roleId) {
   return ROLES.find((role) => role.id === roleId)?.label ?? "—";
 }
 
-export function getEmployeeName(employeeId) {
-  return ACCOUNTS.find((account) => account.employeeId === employeeId)?.name ?? "—";
+export function sameEmployeeId(left, right) {
+  const a = String(left ?? "").replace(/^0+(?=\d)/, "");
+  const b = String(right ?? "").replace(/^0+(?=\d)/, "");
+  return a === b;
 }
 
-export function getEmployee(employeeId) {
-  return ACCOUNTS.find((account) => account.employeeId === employeeId) ?? null;
+export function getEmployeeName(employeeId, employees = []) {
+  return (
+    employees.find((item) => sameEmployeeId(item.employeeId, employeeId))?.name ??
+    "—"
+  );
+}
+
+export function getEmployee(employeeId, employees = []) {
+  return (
+    employees.find((item) => sameEmployeeId(item.employeeId, employeeId)) ?? null
+  );
 }
 
 export function employeePath(employeeId) {
   return `/nhan-vien/${encodeURIComponent(employeeId)}`;
 }
 
-export function listDirectoryEmployees() {
-  return ACCOUNTS.map((account) => ({
-    employeeId: account.employeeId,
-    name: account.name,
-    role: account.role,
-  })).sort((left, right) =>
-    left.employeeId.localeCompare(right.employeeId, "vi"),
+export function listDirectoryEmployees(employees = []) {
+  return [...employees].sort((left, right) =>
+    String(left.employeeId).localeCompare(String(right.employeeId), "vi"),
   );
 }
 
@@ -67,6 +60,8 @@ export const sessionAtom = atomWithStorage(
   { getOnInit: true },
 );
 
+export const employeesAtom = atom([]);
+
 export const isAuthenticatedAtom = atom((get) => Boolean(get(sessionAtom)));
 
 export const isManagerAtom = atom(
@@ -75,39 +70,33 @@ export const isManagerAtom = atom(
 
 export const signInAtom = atom(
   null,
-  (_get, set, employeeId, password, role) => {
-    return new Promise((resolve, reject) => {
-      window.setTimeout(() => {
-        if (!ROLES.some((item) => item.id === role)) {
-          reject(new Error("Chọn vai trò."));
-          return;
-        }
-        const normalized = employeeId.trim();
-        const account = ACCOUNTS.find(
-          (item) => item.employeeId === normalized && item.password === password,
-        );
-        if (!account) {
-          reject(new Error("Mã nhân viên hoặc mật khẩu không đúng."));
-          return;
-        }
-        if (account.role !== role) {
-          reject(new Error("Tài khoản không khớp với vai trò đã chọn."));
-          return;
-        }
-        const session = {
-          employeeId: account.employeeId,
-          name: account.name,
-          role: account.role,
-        };
-        set(sessionAtom, session);
-        resolve(session);
-      }, 720);
+  async (_get, set, employeeId, password, role) => {
+    if (!ROLES.some((item) => item.id === role)) {
+      throw new Error("Chọn vai trò.");
+    }
+    const data = await api("/auth/login", {
+      method: "POST",
+      body: {
+        employee_id: String(employeeId).trim(),
+        password,
+        role,
+      },
     });
+    setToken(data.token);
+    const session = {
+      employeeId: String(data.user.employee_id ?? data.user.id),
+      name: data.user.name,
+      role: data.user.role,
+    };
+    set(sessionAtom, session);
+    return session;
   },
 );
 
 export const signOutAtom = atom(null, (_get, set) => {
+  clearToken();
   set(sessionAtom, RESET);
+  set(employeesAtom, []);
 });
 
-export { ACCOUNTS };
+export { DEMO_ACCOUNTS as ACCOUNTS };

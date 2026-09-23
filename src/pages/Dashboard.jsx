@@ -136,11 +136,11 @@ export default function Dashboard() {
     };
   }, []);
 
-  function handleRemove(order) {
+  async function handleRemove(order) {
     if (editingOrder && recordKey(editingOrder) === recordKey(order)) {
       setEditingOrder(null);
     }
-    removeOrder(order.code, order.type, getOrderKind(order));
+    await removeOrder(order.code, order.type, getOrderKind(order));
     notify(`Đã xóa ${order.code}.`);
   }
 
@@ -149,10 +149,10 @@ export default function Dashboard() {
     notify("Đã bỏ chọn.");
   }
 
-  function handleRemoveSelected() {
+  async function handleRemoveSelected() {
     const count = selectedKeys.size;
     if (count === 0) return;
-    removeOrdersByKeys(selectedKeys);
+    await removeOrdersByKeys(selectedKeys);
     setSelectedKeys(new Set());
     setEditingOrder(null);
     notify(`Đã xóa ${count} đơn hàng.`);
@@ -194,11 +194,11 @@ export default function Dashboard() {
     setSelectedKeys(new Set([key]));
   }
 
-  function handleClear() {
+  async function handleClear() {
     setEditingOrder(null);
     setSecondsOpen(false);
     setSelectedKeys(new Set());
-    clearOrders();
+    await clearOrders();
     notify("Đã xóa toàn bộ đơn hàng.");
   }
 
