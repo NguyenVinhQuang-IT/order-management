@@ -5,12 +5,6 @@ import { sessionJsonStorage } from "./storage";
 
 const STORAGE_KEY = "om_session";
 
-export const DEMO_ACCOUNTS = [
-  { employeeId: "1", password: "123456", name: "Quang", role: "employee" },
-  { employeeId: "2", password: "123456", name: "Lan", role: "employee" },
-  { employeeId: "169", password: "123456", name: "Trúc", role: "manager" },
-];
-
 export const ROLES = [
   { id: "employee", label: "Nhân viên" },
   { id: "manager", label: "Quản lý" },
@@ -93,10 +87,73 @@ export const signInAtom = atom(
   },
 );
 
+export const createEmployeeAtom = atom(null, async (get, set, payload) => {
+  const data = await api("/employees", {
+    method: "POST",
+    body: {
+      id: payload.employeeId,
+      name: payload.name,
+      role: payload.role,
+      password: payload.password,
+    },
+  });
+  const created = mapEmployee(data);
+  const current = get(employeesAtom);
+  if (current.some((item) => sameEmployeeId(item.employeeId, created.employeeId))) {
+    set(employeesAtom, current);
+    return created;
+  }
+  set(employeesAtom, listDirectoryEmployees([...current, created]));
+  return created;
+});
+
+export const updateEmployeeAtom = atom(null, async (get, set, employeeId, payload) => {
+  const body = {
+    name: payload.name,
+    role: payload.role,
+  };
+  if (payload.password) body.password = payload.password;
+  const data = await api(`/employees/${employeeId}`, {
+    method: "PUT",
+    body,
+  });
+  const updated = mapEmployee(data);
+  set(
+    employeesAtom,
+    listDirectoryEmployees(
+      get(employeesAtom).map((item) =>
+        sameEmployeeId(item.employeeId, employeeId) ? updated : item,
+      ),
+    ),
+  );
+  const session = get(sessionAtom);
+  if (session && sameEmployeeId(session.employeeId, employeeId)) {
+    set(sessionAtom, {
+      ...session,
+      name: updated.name,
+      role: updated.role,
+    });
+  }
+  return updated;
+});
+
+export const deleteEmployeeAtom = atom(null, async (get, set, employeeId) => {
+  const session = get(sessionAtom);
+  if (session && sameEmployeeId(session.employeeId, employeeId)) {
+    throw new Error("Không thể xóa tài khoản đang đăng nhập.");
+  }
+  await api(`/employees/${employeeId}`, { method: "DELETE" });
+  set(
+    employeesAtom,
+    get(employeesAtom).filter(
+      (item) => !sameEmployeeId(item.employeeId, employeeId),
+    ),
+  );
+});
+
 export const signOutAtom = atom(null, (_get, set) => {
   clearToken();
   set(sessionAtom, RESET);
   set(employeesAtom, []);
 });
 
-export { DEMO_ACCOUNTS as ACCOUNTS };
