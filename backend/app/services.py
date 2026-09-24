@@ -272,12 +272,21 @@ def list_processes():
     return process_catalog()["items"]
 
 
+EMP_SELECT = "SELECT id, name, pbb, pba FROM emp"
+
+
+def normalize_emp_code(raw):
+    return str(raw or "").strip()
+
+
 def serialize_employee(row, auth=None):
     auth = auth or {}
     return {
         "id": row["id"],
         "employee_id": str(row["id"]),
         "name": row["name"],
+        "pbb": row["pbb"] or "",
+        "pba": row["pba"] or "",
         "role": auth.get("role") or "employee",
     }
 
@@ -286,7 +295,7 @@ def get_employee(emp_id):
     emp_id = parse_int(emp_id)
     if emp_id is None:
         return None
-    row = get_db().execute("SELECT id, name FROM emp WHERE id = ?", (emp_id,)).fetchone()
+    row = get_db().execute(f"{EMP_SELECT} WHERE id = ?", (emp_id,)).fetchone()
     if not row:
         return None
     return serialize_employee(row, get_employee_auth(emp_id))
@@ -295,7 +304,7 @@ def get_employee(emp_id):
 def list_employees():
     db = get_db()
     auth_map = get_auth_map(db)
-    rows = db.execute("SELECT id, name FROM emp ORDER BY id").fetchall()
+    rows = db.execute(f"{EMP_SELECT} ORDER BY id").fetchall()
     return [serialize_employee(row, auth_map.get(str(row["id"]))) for row in rows]
 
 
@@ -832,6 +841,8 @@ def save_code_seconds(type_id, codes, raw_seconds):
 def create_employee(payload):
     emp_id = parse_int(payload.get("id") or payload.get("employee_id"))
     name = str(payload.get("name") or "").strip()
+    pbb = normalize_emp_code(payload.get("pbb"))
+    pba = normalize_emp_code(payload.get("pba"))
     role = payload.get("role") or "employee"
     password = payload.get("password") or ""
     if emp_id is None:
@@ -845,7 +856,10 @@ def create_employee(payload):
     if get_employee(emp_id):
         return None, "Mã nhân viên đã tồn tại."
     with transaction() as db:
-        db.execute("INSERT INTO emp (id, name) VALUES (?, ?)", (emp_id, name))
+        db.execute(
+            "INSERT INTO emp (id, name, pbb, pba) VALUES (?, ?, ?, ?)",
+            (emp_id, name, pbb, pba),
+        )
         set_employee_auth(emp_id, role, password, db)
     return get_employee(emp_id), ""
 
@@ -857,12 +871,17 @@ def update_employee(emp_id, payload):
     name = str(payload["name"]).strip() if "name" in payload else current["name"]
     if not name:
         return None, "Nhập tên nhân viên."
+    pbb = normalize_emp_code(payload["pbb"]) if "pbb" in payload else current["pbb"]
+    pba = normalize_emp_code(payload["pba"]) if "pba" in payload else current["pba"]
     role = payload.get("role", current["role"])
     if role not in ROLES:
         return None, "Chọn vai trò."
     password = payload.get("password")
     with transaction() as db:
-        db.execute("UPDATE emp SET name = ? WHERE id = ?", (name, current["id"]))
+        db.execute(
+            "UPDATE emp SET name = ?, pbb = ?, pba = ? WHERE id = ?",
+            (name, pbb, pba, current["id"]),
+        )
         set_employee_auth(current["id"], role, password, db)
     return get_employee(current["id"]), ""
 

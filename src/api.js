@@ -97,6 +97,8 @@ export function mapEmployee(item) {
   return {
     employeeId: String(item.employee_id ?? item.id),
     name: item.name,
+    pbb: item.pbb || "",
+    pba: item.pba || "",
     role: item.role,
   };
 }

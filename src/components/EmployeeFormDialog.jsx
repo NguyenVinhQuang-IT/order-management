@@ -21,6 +21,8 @@ function fieldInputClass(invalid) {
 const emptyForm = {
   employeeId: "",
   name: "",
+  pbb: "",
+  pba: "",
   role: "employee",
   password: "",
 };
@@ -54,6 +56,8 @@ export default function EmployeeFormDialog({ open, employee = null, onClose }) {
         ? {
             employeeId: String(employee.employeeId ?? ""),
             name: employee.name ?? "",
+            pbb: employee.pbb ?? "",
+            pba: employee.pba ?? "",
             role: employee.role || "employee",
             password: "",
           }
@@ -129,6 +133,8 @@ export default function EmployeeFormDialog({ open, employee = null, onClose }) {
       if (isEdit) {
         const updated = await updateEmployee(employee.employeeId, {
           name: form.name.trim(),
+          pbb: form.pbb.trim(),
+          pba: form.pba.trim(),
           role: form.role,
           password: form.password,
         });
@@ -137,6 +143,8 @@ export default function EmployeeFormDialog({ open, employee = null, onClose }) {
         const created = await createEmployee({
           employeeId: form.employeeId.trim(),
           name: form.name.trim(),
+          pbb: form.pbb.trim(),
+          pba: form.pba.trim(),
           role: form.role,
           password: form.password,
         });
@@ -226,6 +234,49 @@ export default function EmployeeFormDialog({ open, employee = null, onClose }) {
               </span>
             ) : null}
           </label>
+
+          <div className="grid grid-cols-1 gap-6 tablet:grid-cols-2">
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+                Mã PBB
+              </span>
+              <input
+                className={fieldInputClass(Boolean(fieldErrors.pbb))}
+                type="text"
+                name="pbb"
+                autoComplete="off"
+                spellCheck={false}
+                value={form.pbb}
+                onChange={(event) => updateField("pbb", event.target.value)}
+                aria-invalid={Boolean(fieldErrors.pbb)}
+              />
+              {fieldErrors.pbb ? (
+                <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-warn">
+                  {fieldErrors.pbb}
+                </span>
+              ) : null}
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+                Mã PBA
+              </span>
+              <input
+                className={fieldInputClass(Boolean(fieldErrors.pba))}
+                type="text"
+                name="pba"
+                autoComplete="off"
+                spellCheck={false}
+                value={form.pba}
+                onChange={(event) => updateField("pba", event.target.value)}
+                aria-invalid={Boolean(fieldErrors.pba)}
+              />
+              {fieldErrors.pba ? (
+                <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-warn">
+                  {fieldErrors.pba}
+                </span>
+              ) : null}
+            </label>
+          </div>
 
           <div className="flex flex-col gap-2">
             <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">

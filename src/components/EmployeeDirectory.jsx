@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { employeePath, getRoleLabel } from "../auth";
 
 const tableCols =
-  "desk:grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.4fr)_auto]";
+  "desk:grid-cols-[minmax(0,0.5fr)_minmax(0,1fr)_minmax(0,0.55fr)_minmax(0,0.55fr)_minmax(0,0.75fr)_minmax(0,0.35fr)_auto]";
 
 const textLinkClass =
   "cursor-pointer border-0 bg-transparent p-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-primary";
@@ -28,6 +28,8 @@ export default function EmployeeDirectory({
       >
         <span>Mã NV</span>
         <span>Tên</span>
+        <span>Mã PBB</span>
+        <span>Mã PBA</span>
         <span>Vai trò</span>
         <span>Đơn</span>
         <span>Thao tác</span>
@@ -45,6 +47,14 @@ export default function EmployeeDirectory({
           <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
             <span className="desk:hidden">Tên </span>
             {row.name}
+          </span>
+          <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+            <span className="desk:hidden">Mã PBB </span>
+            {row.pbb || "—"}
+          </span>
+          <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+            <span className="desk:hidden">Mã PBA </span>
+            {row.pba || "—"}
           </span>
           <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
             <span className="desk:hidden">Vai trò </span>

@@ -93,6 +93,8 @@ export const createEmployeeAtom = atom(null, async (get, set, payload) => {
     body: {
       id: payload.employeeId,
       name: payload.name,
+      pbb: payload.pbb,
+      pba: payload.pba,
       role: payload.role,
       password: payload.password,
     },
@@ -110,6 +112,8 @@ export const createEmployeeAtom = atom(null, async (get, set, payload) => {
 export const updateEmployeeAtom = atom(null, async (get, set, employeeId, payload) => {
   const body = {
     name: payload.name,
+    pbb: payload.pbb,
+    pba: payload.pba,
     role: payload.role,
   };
   if (payload.password) body.password = payload.password;

@@ -131,7 +131,14 @@ export default function EmployeeDetail() {
         </h1>
         <p className="mt-4 max-w-[34ch] font-sans text-[21px] font-normal leading-[1.19] tracking-[0.196px] text-ink-muted-80 desk:text-[28px] desk:leading-[1.14]">
           {known
-            ? `Mã ${employeeId}${roleLabel !== "—" ? ` · ${roleLabel}` : ""}`
+            ? [
+                `Mã ${employeeId}`,
+                account?.pbb ? `PBB ${account.pbb}` : null,
+                account?.pba ? `PBA ${account.pba}` : null,
+                roleLabel !== "—" ? roleLabel : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
             : "Nhân viên này không có trong hệ thống."}
         </p>
 

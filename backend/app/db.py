@@ -16,7 +16,9 @@ CREATE TABLE IF NOT EXISTS config (
 CREATE TABLE IF NOT EXISTS emp (
     id INTEGER NOT NULL
         CONSTRAINT emp_pk PRIMARY KEY,
-    name TEXT
+    name TEXT,
+    pbb TEXT,
+    pba TEXT
 );
 
 CREATE TABLE IF NOT EXISTS oders (
@@ -74,9 +76,21 @@ def close_db(_error=None):
         conn.close()
 
 
+def _table_columns(db, table):
+    return {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+
+
+def ensure_columns(db, table, columns):
+    existing = _table_columns(db, table)
+    for name, coltype in columns:
+        if name not in existing:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {coltype}")
+
+
 def init_schema(conn=None):
     db = conn or get_db()
     db.executescript(SCHEMA)
+    ensure_columns(db, "emp", (("pbb", "TEXT"), ("pba", "TEXT")))
     db.commit()
 
 
