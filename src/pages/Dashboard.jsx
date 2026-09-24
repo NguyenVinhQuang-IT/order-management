@@ -8,7 +8,6 @@ import SecondsEditDialog from "../components/SecondsEditDialog";
 import { useToast } from "../components/Toast";
 import {
   accessibleOrdersAtom,
-  clearOrdersAtom,
   filteredOrdersAtom,
   getOrderKind,
   getOrderTypeLabel,
@@ -57,7 +56,6 @@ export default function Dashboard() {
   const codeSeconds = useAtomValue(codeSecondsAtom);
   const removeOrder = useSetAtom(removeOrderAtom);
   const removeOrdersByKeys = useSetAtom(removeOrdersByKeysAtom);
-  const clearOrders = useSetAtom(clearOrdersAtom);
   const [entryOpen, setEntryOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState(null);
   const [secondsOpen, setSecondsOpen] = useState(false);
@@ -194,14 +192,6 @@ export default function Dashboard() {
     setSelectedKeys(new Set([key]));
   }
 
-  async function handleClear() {
-    setEditingOrder(null);
-    setSecondsOpen(false);
-    setSelectedKeys(new Set());
-    await clearOrders();
-    notify("Đã xóa toàn bộ đơn hàng.");
-  }
-
   function handleStartEdit(order) {
     setSecondsOpen(false);
     setEntryOpen(false);
@@ -259,28 +249,17 @@ export default function Dashboard() {
           className={`mt-10 ${selectedKeys.size ? "pb-24" : ""}`}
           aria-labelledby="order-list-heading"
         >
-          <div className="mb-4 flex items-baseline justify-between gap-4">
-            <h2
-              id="order-list-heading"
-              className="m-0 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
-            >
-              Đơn đã nhập
-              {visibleOrders.length ? (
-                <span className="ml-2 font-normal text-ink-muted-48">
-                  {visibleOrders.length}
-                </span>
-              ) : null}
-            </h2>
-            {orders.length ? (
-              <button
-                className={textLinkClass}
-                type="button"
-                onClick={handleClear}
-              >
-                Xóa tất cả
-              </button>
+          <h2
+            id="order-list-heading"
+            className="m-0 mb-4 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
+          >
+            Đơn đã nhập
+            {visibleOrders.length ? (
+              <span className="ml-2 font-normal text-ink-muted-48">
+                {visibleOrders.length}
+              </span>
             ) : null}
-          </div>
+          </h2>
 
           <div className="mb-4">
             <OrderFilters />
