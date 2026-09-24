@@ -75,7 +75,7 @@ export default function Login() {
 
       <main className="grid min-h-[calc(100vh-44px)] grid-cols-1 tablet:grid-cols-2">
         <section
-          className="flex flex-col justify-center bg-tile px-6 py-12 text-white tablet:px-10 tablet:py-16 desk:px-16 desk:py-20"
+          className="relative flex flex-col justify-center bg-tile px-6 py-12 text-white tablet:px-10 tablet:py-16 tablet:pb-28 desk:px-16 desk:py-20 desk:pb-32"
           aria-label="Giới thiệu"
         >
           <div>
@@ -93,6 +93,13 @@ export default function Login() {
               Hệ thống quản lý công đoạn và quy trình
             </p>
           </div>
+          <p className="mt-10 m-0 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-body-muted tablet:absolute tablet:bottom-8 tablet:left-10 tablet:mt-0 desk:bottom-10 desk:left-16">
+            <span className="block font-semibold text-white/80">
+              Đội ngũ phát triển
+            </span>
+            <span className="mt-1.5 block">Nguyễn Vinh Quang</span>
+            <span className="block">Đặng Tuấn Kiệt</span>
+          </p>
         </section>
 
         <section className="flex items-start justify-center bg-parchment px-6 pb-16 pt-12 tablet:items-center tablet:px-8 tablet:py-20">

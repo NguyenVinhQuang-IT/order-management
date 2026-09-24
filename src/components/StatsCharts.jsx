@@ -1,28 +1,33 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { employeePath } from "../auth";
+import { formatCount } from "../settings";
+import { ghostButtonClass } from "./order-entry/styles";
 
-const CHART_COLORS = [
-  "#0066cc",
-  "#1d1d1f",
-  "#6e6e73",
-  "#2997ff",
-  "#bf4800",
-  "#0071e3",
-  "#515154",
-  "#64d2ff",
-  "#8e8e93",
-  "#147ce5",
-  "#424245",
-  "#5ac8fa",
-  "#86868b",
-  "#0a84ff",
-  "#636366",
-  "#7dc1ff",
-  "#aeaeb2",
-  "#409cff",
-  "#3a3a3c",
-];
+const textButtonClass =
+  "cursor-pointer border-0 bg-transparent p-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-primary";
+
+const TYPE_COLORS = {
+  "xep-ban-nhan-don": "#2563EB",
+  "kiem-don-voi-mau": "#EA580C",
+  "phan-hinh-the-mau-tem-chuyen-in": "#16A34A",
+  "luu-thong-so-san-pham": "#C026D3",
+  "sap-xep-seka": "#CA8A04",
+  "lam-don": "#0891B2",
+  "kiem-don": "#7C3AED",
+  "gui-layout-don-san-xuat": "#E11D48",
+  "lam-file-ban-nhua": "#0D9488",
+  "lam-layout": "#D97706",
+  "lam-don-mau": "#4F46E5",
+  "bu-don": "#65A30D",
+  "ve-cat-hinh-giay": "#DB2777",
+  "luu-macro": "#0369A1",
+  "upload-hinh-giay": "#B45309",
+  "viet-code": "#059669",
+  "luu-size-doi-chieu": "#9333EA",
+  "luu-btw": "#F59E0B",
+  "don-loi": "#DC2626",
+};
 
 function niceMax(value) {
   if (value <= 0) return 4;
@@ -33,13 +38,35 @@ function niceMax(value) {
   return nice * magnitude;
 }
 
-function typeColor(index) {
-  return CHART_COLORS[index % CHART_COLORS.length];
+function colorForType(typeId) {
+  return TYPE_COLORS[typeId] || "#6B7280";
 }
 
-function colorForType(typeId, types) {
-  const index = types.findIndex((type) => type.id === typeId);
-  return typeColor(index < 0 ? 0 : index);
+const CHANGE_UP = "#16A34A";
+const CHANGE_DOWN = "#DC2626";
+const CHANGE_FLAT = "#86868B";
+
+function changeColor(delta) {
+  if (delta > 0) return CHANGE_UP;
+  if (delta < 0) return CHANGE_DOWN;
+  return CHANGE_FLAT;
+}
+
+function formatSignedCount(delta) {
+  if (delta > 0) return `+${formatCount(delta)}`;
+  if (delta < 0) return `−${formatCount(-delta)}`;
+  return "0";
+}
+
+function formatChangePercent(delta, prev) {
+  if (prev == null) return "";
+  if (prev <= 0) return delta > 0 ? "mới" : "";
+  const pct = Math.abs((delta / prev) * 100);
+  const rounded = pct >= 10 ? Math.round(pct) : Math.round(pct * 10) / 10;
+  const text = Number(rounded).toLocaleString("vi-VN");
+  if (delta > 0) return `+${text}%`;
+  if (delta < 0) return `−${text}%`;
+  return "0%";
 }
 
 function typesWithCounts(items) {
@@ -52,14 +79,17 @@ function typesWithCounts(items) {
   );
 }
 
-export function ChartCard({ title, children, className = "" }) {
+export function ChartCard({ title, children, className = "", action = null }) {
   return (
     <article
       className={`rounded-[18px] border border-hairline bg-canvas p-6 ${className}`}
     >
-      <h2 className="mb-6 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
-        {title}
-      </h2>
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h2 className="m-0 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
+          {title}
+        </h2>
+        {action}
+      </div>
       {children}
     </article>
   );
@@ -76,10 +106,10 @@ export function DonutChart({ items, total }) {
   const visible = items.filter((item) => item.count > 0);
   const arcs = [];
   let offset = 0;
-  items.forEach((item, index) => {
+  items.forEach((item) => {
     if (total > 0 && item.count > 0) {
       const length = (item.count / total) * circumference;
-      arcs.push({ id: item.id, length, offset, color: typeColor(index) });
+      arcs.push({ id: item.id, length, offset, color: colorForType(item.id) });
       offset += length;
     }
   });
@@ -120,11 +150,11 @@ export function DonutChart({ items, total }) {
           y={cy - 4}
           textAnchor="middle"
           fill="#1d1d1f"
-          fontSize="22"
+          fontSize={formatCount(total).length > 5 ? 16 : 22}
           fontWeight="600"
           fontFamily="Inter, system-ui, sans-serif"
         >
-          {total}
+          {formatCount(total)}
         </text>
         <text
           x={cx}
@@ -142,14 +172,14 @@ export function DonutChart({ items, total }) {
           <li key={item.id} className="flex items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink">
               <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: colorForType(item.id, items) }}
+                className="h-3 w-3 shrink-0 rounded-full"
+                style={{ backgroundColor: colorForType(item.id) }}
                 aria-hidden="true"
               />
               <span className="truncate">{item.label}</span>
             </span>
             <span className="text-sm leading-[1.29] tracking-[-0.224px] text-ink tabular-nums">
-              {item.count}
+              {formatCount(item.count)}
             </span>
           </li>
         ))}
@@ -158,60 +188,102 @@ export function DonutChart({ items, total }) {
   );
 }
 
-export function DayBarChart({ items }) {
+export function DayBarChart({ items, size = "default" }) {
   const [tip, setTip] = useState(null);
-  const allTypes = items[0]?.byType?.length
-    ? items[0].byType
-    : [{ id: "all", label: "Đơn", count: 0 }];
-  const types = typesWithCounts(items);
-  const visibleTypes = types.length ? types : allTypes;
-  const typeCount = Math.max(visibleTypes.length, 1);
-  const width = Math.max(420, items.length * (18 * typeCount + 16) + 40);
-  const height = 220;
-  const padL = 28;
-  const padR = 8;
-  const padT = 12;
-  const padB = 32;
+  const expanded = size === "expanded";
+  const visibleTypes = typesWithCounts(items);
+  const height = expanded ? 540 : 320;
+  const width = Math.max(
+    expanded ? 960 : 640,
+    items.length * (expanded ? 56 : 44) + 72,
+  );
+  const padL = 56;
+  const padR = 12;
+  const padT = 46;
+  const padB = 36;
+  const clipPrefix = expanded ? "day-lg" : "day";
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
-  const max = niceMax(
-    Math.max(
-      ...items.flatMap((item) =>
-        item.byType?.length
-          ? item.byType.map((type) => type.count)
-          : [item.count],
-      ),
-      0,
-    ),
-  );
-  const groupGap = 10;
-  const barGap = 3;
+  const max = niceMax(Math.max(...items.map((item) => item.count), 0));
+  const groupGap = 8;
   const groupW = Math.max(
-    12,
-    (plotW - groupGap * (items.length + 1)) / items.length,
+    16,
+    (plotW - groupGap * (items.length + 1)) / Math.max(items.length, 1),
   );
-  const barW = Math.max(6, (groupW - barGap * (typeCount - 1)) / typeCount);
-  const ticks = [0, 0.5, 1];
+  const barW = Math.max(12, groupW * 0.62);
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+  const dayPoints = items.map((item, index) => {
+    const groupX = padL + groupGap + index * (groupW + groupGap);
+    const x = groupX + groupW / 2;
+    const rawHeight = max > 0 ? (item.count / max) * plotH : 0;
+    const totalHeight = item.count > 0 ? Math.max(rawHeight, 4) : 0;
+    const y = padT + plotH - totalHeight;
+    const lineY = padT + plotH - rawHeight;
+    const prev = index > 0 ? items[index - 1].count : null;
+    const delta = prev == null ? null : item.count - prev;
+    return {
+      item,
+      index,
+      groupX,
+      x,
+      y,
+      lineY,
+      rawHeight,
+      totalHeight,
+      prev,
+      delta,
+    };
+  });
+  const linePoints = dayPoints
+    .map((point) => `${point.x},${point.lineY}`)
+    .join(" ");
 
-  function showTip(event, dayLabel, typeLabel, count) {
+  function showTip(event, point, typeLabel, count) {
     setTip({
       x: event.clientX,
       y: event.clientY,
-      dayLabel,
+      dayLabel: point.item.label,
       typeLabel,
       count,
+      dayTotal: point.item.count,
+      delta: point.delta,
+      prev: point.prev,
     });
   }
 
   return (
     <div>
-      <div className="relative overflow-x-auto" onMouseLeave={() => setTip(null)}>
+      <div
+        className={`relative overflow-x-auto ${expanded ? "h-[540px]" : "h-[320px]"}`}
+        onMouseLeave={() => setTip(null)}
+      >
         <svg
           viewBox={`0 0 ${width} ${height}`}
-          className="h-auto w-full"
+          className="block h-full max-w-none"
+          style={{ width: "100%", minWidth: `${width}px` }}
           role="img"
           aria-label="Số đơn theo ngày và công đoạn"
         >
+          <defs>
+            {dayPoints.map((point) => {
+              if (point.totalHeight <= 0) return null;
+              const barX = point.groupX + (groupW - barW) / 2;
+              return (
+                <clipPath
+                  key={point.item.id}
+                  id={`${clipPrefix}-stack-${point.item.id}`}
+                >
+                  <rect
+                    x={barX}
+                    y={point.y}
+                    width={barW}
+                    height={point.totalHeight}
+                    rx={6}
+                  />
+                </clipPath>
+              );
+            })}
+          </defs>
           {ticks.map((tick) => {
             const y = padT + plotH * (1 - tick);
             return (
@@ -224,59 +296,61 @@ export function DayBarChart({ items }) {
                   stroke="#e0e0e0"
                 />
                 <text
-                  x={padL - 6}
+                  x={padL - 8}
                   y={y + 4}
                   textAnchor="end"
                   fill="#7a7a7a"
                   fontSize="11"
                   fontFamily="Inter, system-ui, sans-serif"
                 >
-                  {Math.round(max * tick)}
+                  {formatCount(Math.round(max * tick))}
                 </text>
               </g>
             );
           })}
-          {items.map((item, index) => {
-            const groupX = padL + groupGap + index * (groupW + groupGap);
-            const series = visibleTypes.map((type) => ({
-              ...type,
-              count:
-                item.byType?.find((entry) => entry.id === type.id)?.count ??
-                (type.id === "all" ? item.count : 0),
-            }));
-            const barsWidth = typeCount * barW + (typeCount - 1) * barGap;
-            const barOrigin = groupX + Math.max(0, (groupW - barsWidth) / 2);
+          {dayPoints.map((point) => {
+            const { item, groupX, totalHeight, rawHeight } = point;
+            const barX = groupX + (groupW - barW) / 2;
+            const series = visibleTypes
+              .map((type) => ({
+                ...type,
+                count:
+                  item.byType?.find((entry) => entry.id === type.id)?.count ??
+                  (type.id === "all" ? item.count : 0),
+              }))
+              .filter((type) => type.count > 0);
+            const scale = rawHeight > 0 ? totalHeight / rawHeight : 1;
+            let yCursor = padT + plotH;
+            const segments = series.map((type) => {
+              const segmentHeight =
+                max > 0 ? (type.count / max) * plotH * scale : 0;
+              yCursor -= segmentHeight;
+              return { ...type, y: yCursor, height: segmentHeight };
+            });
             return (
               <g key={item.id}>
-                {series.map((type, typeIndex) => {
-                  const heightValue = max > 0 ? (type.count / max) * plotH : 0;
-                  const x = barOrigin + typeIndex * (barW + barGap);
-                  const y = padT + plotH - heightValue;
-                  if (type.count <= 0) return null;
-                  const typeLabel =
-                    type.label || visibleTypes[typeIndex]?.label || "Đơn";
-                  return (
+                <g clipPath={`url(#${clipPrefix}-stack-${item.id})`}>
+                  {segments.map((type) => (
                     <rect
                       key={type.id}
-                      x={x}
-                      y={y}
+                      x={barX}
+                      y={type.y}
                       width={barW}
-                      height={heightValue}
-                      rx={5}
-                      fill={colorForType(type.id, allTypes)}
+                      height={type.height}
+                      fill={colorForType(type.id)}
                       className="cursor-pointer"
                       onMouseEnter={(event) =>
-                        showTip(event, item.label, typeLabel, type.count)
+                        showTip(event, point, type.label || "Đơn", type.count)
                       }
                       onMouseMove={(event) =>
-                        showTip(event, item.label, typeLabel, type.count)
+                        showTip(event, point, type.label || "Đơn", type.count)
                       }
                     />
-                  );
-                })}
+                  ))}
+                </g>
                 <text
                   x={groupX + groupW / 2}
-                  y={height - 10}
+                  y={height - 12}
                   textAnchor="middle"
                   fill="#7a7a7a"
                   fontSize="11"
@@ -287,86 +361,256 @@ export function DayBarChart({ items }) {
               </g>
             );
           })}
+          {dayPoints.length > 1 ? (
+            <polyline
+              fill="none"
+              stroke="#1d1d1f"
+              strokeWidth={expanded ? 2 : 1.6}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              points={linePoints}
+            />
+          ) : null}
+          {dayPoints.map((point) => (
+            <circle
+              key={`dot-${point.item.id}`}
+              cx={point.x}
+              cy={point.lineY}
+              r={expanded ? 4 : 3}
+              fill="#ffffff"
+              stroke={
+                point.delta == null ? "#1d1d1f" : changeColor(point.delta)
+              }
+              strokeWidth={1.5}
+              className="cursor-pointer"
+              onMouseEnter={(event) =>
+                showTip(event, point, "Tổng ngày", point.item.count)
+              }
+              onMouseMove={(event) =>
+                showTip(event, point, "Tổng ngày", point.item.count)
+              }
+            />
+          ))}
+          {dayPoints.map((point) => {
+            if (point.item.count <= 0) return null;
+            const color =
+              point.delta == null ? "#1d1d1f" : changeColor(point.delta);
+            const mark =
+              point.delta == null
+                ? ""
+                : point.delta > 0
+                  ? "▲"
+                  : point.delta < 0
+                    ? "▼"
+                    : "●";
+            return (
+              <g key={`label-${point.item.id}`}>
+                {point.delta != null ? (
+                  <text
+                    x={point.x}
+                    y={point.y - 18}
+                    textAnchor="middle"
+                    fill={color}
+                    fontSize="10"
+                    fontWeight="600"
+                    fontFamily="Inter, system-ui, sans-serif"
+                  >
+                    {mark} {formatSignedCount(point.delta)}
+                  </text>
+                ) : null}
+                <text
+                  x={point.x}
+                  y={point.y - 6}
+                  textAnchor="middle"
+                  fill="#1d1d1f"
+                  fontSize="11"
+                  fontWeight="600"
+                  fontFamily="Inter, system-ui, sans-serif"
+                >
+                  {formatCount(point.item.count)}
+                </text>
+              </g>
+            );
+          })}
         </svg>
         {tip ? (
           <div
-            className="pointer-events-none fixed z-50 rounded-[12px] bg-ink px-3 py-2 text-white shadow-product"
+            className="pointer-events-none fixed z-[60] rounded-[12px] bg-ink px-3 py-2 text-white shadow-product"
             style={{ left: tip.x + 12, top: tip.y - 12, transform: "translateY(-100%)" }}
           >
             <p className="m-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-body-muted">
               {tip.dayLabel} · {tip.typeLabel}
             </p>
             <p className="m-0 mt-1 text-[17px] font-semibold leading-none tracking-[-0.374px] tabular-nums">
-              {tip.count} đơn
+              {formatCount(tip.count)} đơn
+              {tip.dayTotal > tip.count
+                ? ` · ${formatCount(tip.dayTotal)} cả ngày`
+                : ""}
             </p>
+            {tip.delta != null ? (
+              <p
+                className="m-0 mt-2 text-sm font-semibold leading-[1.29] tracking-[-0.224px] tabular-nums"
+                style={{ color: changeColor(tip.delta) }}
+              >
+                {tip.delta > 0 ? "▲ Tăng " : tip.delta < 0 ? "▼ Giảm " : "● "}
+                {formatCount(Math.abs(tip.delta))}
+                {formatChangePercent(tip.delta, tip.prev)
+                  ? ` (${formatChangePercent(tip.delta, tip.prev)})`
+                  : ""}
+                {" so với ngày trước"}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
-      <ul className="mt-4 m-0 flex list-none flex-wrap gap-x-5 gap-y-2 p-0">
-        {visibleTypes.map((type) => (
-          <li
-            key={type.id}
-            className="flex items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink"
-          >
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{
-                backgroundColor: colorForType(type.id, allTypes),
-              }}
-              aria-hidden="true"
-            />
-            {type.label}
-          </li>
-        ))}
-      </ul>
+      {visibleTypes.length ? (
+        <ul className="mt-4 m-0 flex list-none flex-wrap gap-x-5 gap-y-2 p-0">
+          {visibleTypes.map((type) => (
+            <li
+              key={type.id}
+              className="flex items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink"
+            >
+              <span
+                className="h-3 w-3 shrink-0 rounded-full"
+                style={{
+                  backgroundColor: colorForType(type.id),
+                }}
+                aria-hidden="true"
+              />
+              {type.label}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
 
-function EmployeeStageBars({ item, max, types }) {
-  const series = (item.byType?.length ? item.byType : [{ id: "all", count: item.count }])
-    .filter((type) => type.count > 0);
+export function ExpandableDayChart({ title, items, className = "" }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function handleKey(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
 
   return (
-    <div className="flex min-w-0 items-start gap-3">
-      <span className="w-[7.5rem] shrink-0">
-        <span className="block truncate text-sm leading-[1.29] tracking-[-0.224px] text-ink">
-          {item.name && item.name !== "—" ? item.name : item.employeeId}
+    <>
+      <ChartCard
+        className={className}
+        title={title}
+        action={
+          <button
+            className={textButtonClass}
+            type="button"
+            onClick={() => setOpen(true)}
+          >
+            Phóng to
+          </button>
+        }
+      >
+        <DayBarChart items={items} />
+      </ChartCard>
+      {open ? (
+        <div
+          className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 tablet:items-center tablet:p-6"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="max-h-[94vh] w-full overflow-y-auto rounded-t-[18px] border border-hairline bg-canvas p-6 shadow-product tablet:max-w-[1200px] tablet:rounded-[18px] tablet:p-8"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="day-chart-expand-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <h2
+                id="day-chart-expand-title"
+                className="m-0 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
+              >
+                {title}
+              </h2>
+              <button
+                className={ghostButtonClass}
+                type="button"
+                onClick={() => setOpen(false)}
+              >
+                Đóng
+              </button>
+            </div>
+            <DayBarChart items={items} size="expanded" />
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function EmployeeStageBars({ item, max }) {
+  const series = (item.byType?.length ? item.byType : [{ id: "all", count: item.count }])
+    .filter((type) => type.count > 0);
+  const name = item.name && item.name !== "—" ? item.name : item.employeeId;
+
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <span>
+        <span className="block text-sm leading-[1.43] tracking-[-0.224px] text-ink">
+          {name}
         </span>
         <span className="block text-sm leading-[1.29] tracking-[-0.224px] text-ink-muted-48 tabular-nums">
           {item.employeeId}
         </span>
       </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        {(series.length ? series : [{ id: "empty", count: 0 }]).map((type) => {
-          const percent = max > 0 ? (type.count / max) * 100 : 0;
-          return (
-            <div key={type.id} className="flex items-center gap-3">
-              <div className="h-2.5 min-w-0 flex-1 rounded-full bg-parchment">
-                {type.count > 0 ? (
-                  <div
-                    className="h-2.5 rounded-full"
-                    style={{
-                      width: `${percent}%`,
-                      backgroundColor: colorForType(type.id, types),
-                    }}
+      <div className="flex min-w-0 flex-col gap-2">
+        {(series.length ? series : [{ id: "empty", label: "Đơn", count: 0 }]).map(
+          (type) => {
+            const percent = max > 0 ? (type.count / max) * 100 : 0;
+            return (
+              <div
+                key={type.id}
+                className="grid grid-cols-1 gap-1 tablet:grid-cols-[minmax(12rem,20rem)_minmax(0,1fr)_3.5rem] tablet:items-center tablet:gap-3"
+              >
+                <span className="flex min-w-0 items-start gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink">
+                  <span
+                    className="mt-0.5 h-3 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: colorForType(type.id) }}
+                    aria-hidden="true"
                   />
-                ) : null}
+                  <span>{type.label || "Đơn"}</span>
+                </span>
+                <div className="h-2.5 min-w-0 rounded-full bg-parchment">
+                  {type.count > 0 ? (
+                    <div
+                      className="h-2.5 rounded-full"
+                      style={{
+                        width: `${percent}%`,
+                        backgroundColor: colorForType(type.id),
+                      }}
+                    />
+                  ) : null}
+                </div>
+                <span className="text-sm leading-[1.29] tracking-[-0.224px] text-ink tabular-nums tablet:text-right">
+                  {formatCount(type.count)}
+                </span>
               </div>
-              <span className="w-10 shrink-0 text-right text-sm leading-[1.29] tracking-[-0.224px] text-ink tabular-nums">
-                {type.count}
-              </span>
-            </div>
-          );
-        })}
+            );
+          },
+        )}
       </div>
     </div>
   );
 }
 
 export function EmployeeBarChart({ items, empty = "Chưa có dữ liệu." }) {
-  const allTypes = items[0]?.byType?.length ? items[0].byType : [];
-  const types = typesWithCounts(items);
   const max = Math.max(
     ...items.flatMap((item) =>
       item.byType?.length
@@ -385,42 +629,21 @@ export function EmployeeBarChart({ items, empty = "Chưa có dữ liệu." }) {
   }
 
   return (
-    <div>
-      <ul className="m-0 flex list-none flex-col gap-5 p-0">
-        {items.map((item) => (
-          <li key={item.employeeId}>
-            {item.employeeId && item.employeeId !== "—" ? (
-              <Link
-                to={employeePath(item.employeeId)}
-                className="block no-underline hover:opacity-80"
-              >
-                <EmployeeStageBars item={item} max={max} types={allTypes} />
-              </Link>
-            ) : (
-              <EmployeeStageBars item={item} max={max} types={allTypes} />
-            )}
-          </li>
-        ))}
-      </ul>
-      {types.length ? (
-        <ul className="mt-4 m-0 flex list-none flex-wrap gap-x-5 gap-y-2 p-0">
-          {types.map((type) => (
-            <li
-              key={type.id}
-              className="flex items-center gap-2 text-sm leading-[1.29] tracking-[-0.224px] text-ink"
+    <ul className="m-0 flex list-none flex-col gap-6 p-0">
+      {items.map((item) => (
+        <li key={item.employeeId}>
+          {item.employeeId && item.employeeId !== "—" ? (
+            <Link
+              to={employeePath(item.employeeId)}
+              className="block no-underline hover:opacity-80"
             >
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{
-                  backgroundColor: colorForType(type.id, allTypes),
-                }}
-                aria-hidden="true"
-              />
-              {type.label}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
+              <EmployeeStageBars item={item} max={max} />
+            </Link>
+          ) : (
+            <EmployeeStageBars item={item} max={max} />
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }

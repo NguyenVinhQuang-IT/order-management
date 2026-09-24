@@ -12,9 +12,9 @@ import GlobalNav from "../components/GlobalNav";
 import OrderFilters from "../components/OrderFilters";
 import {
   ChartCard,
-  DayBarChart,
   DonutChart,
   EmployeeBarChart,
+  ExpandableDayChart,
 } from "../components/StatsCharts";
 import {
   dateFromAtom,
@@ -26,6 +26,7 @@ import {
 } from "../orders";
 import {
   codeSecondsAtom,
+  formatCount,
   formatSeconds,
   sumOrderSeconds,
   sumSecondsByType,
@@ -124,9 +125,9 @@ export default function Stats() {
           className="mt-8 grid grid-cols-1 gap-4 tablet:grid-cols-2 desk:grid-cols-4"
           aria-label="Chỉ số"
         >
-          <MetricCard label="Đơn đã nhập" value={stats.total} />
-          <MetricCard label="Mã CO" value={stats.uniqueCoCodes} />
-          <MetricCard label="Mã PD" value={stats.uniquePdCodes} />
+          <MetricCard label="Đơn đã nhập" value={formatCount(stats.total)} />
+          <MetricCard label="Mã CO" value={formatCount(stats.uniqueCoCodes)} />
+          <MetricCard label="Mã PD" value={formatCount(stats.uniquePdCodes)} />
           <MetricCard
             label="Tổng số giây"
             value={formatSeconds(secondsByType.total)}
@@ -140,12 +141,11 @@ export default function Stats() {
           <ChartCard title="Tỷ lệ theo công đoạn">
             <DonutChart items={stats.byType} total={stats.total} />
           </ChartCard>
-          <ChartCard
+          <ExpandableDayChart
             className="desk:col-span-2"
             title={hasDateRange ? "Đơn theo ngày" : "Đơn 14 ngày gần đây"}
-          >
-            <DayBarChart items={stats.byDay} />
-          </ChartCard>
+            items={stats.byDay}
+          />
           <ChartCard className="desk:col-span-3" title="Theo nhân viên">
             <EmployeeBarChart items={employeeRows} empty={emptyMessage} />
           </ChartCard>
@@ -171,7 +171,9 @@ export default function Stats() {
                 <span>Đơn</span>
                 <span>Số giây</span>
               </li>
-              {secondsByType.items.map((item) => (
+              {secondsByType.items
+                .filter((item) => item.count > 0)
+                .map((item) => (
                 <li
                   key={item.id}
                   className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${typeTableCols} desk:items-center desk:gap-4 border-b border-hairline`}
@@ -181,7 +183,7 @@ export default function Stats() {
                   </span>
                   <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
                     <span className="desk:hidden">Đơn </span>
-                    {item.count}
+                    {formatCount(item.count)}
                   </span>
                   <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
                     <span className="desk:hidden">Số giây </span>
@@ -197,7 +199,7 @@ export default function Stats() {
                 </span>
                 <span className="text-sm font-semibold leading-[1.43] tracking-[-0.224px] text-ink tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
                   <span className="desk:hidden">Đơn </span>
-                  {secondsByType.totalCount}
+                  {formatCount(secondsByType.totalCount)}
                 </span>
                 <span className="text-sm font-semibold leading-[1.43] tracking-[-0.224px] text-ink tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
                   <span className="desk:hidden">Số giây </span>

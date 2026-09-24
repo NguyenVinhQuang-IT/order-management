@@ -10,9 +10,14 @@ import {
 
 export const MAX_SECONDS = 99999;
 
+export function formatCount(value) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return Number(value).toLocaleString("vi-VN");
+}
+
 export function formatSeconds(value) {
   if (value == null || Number.isNaN(value)) return "—";
-  return Number(value).toLocaleString("vi-VN");
+  return formatCount(value);
 }
 
 export function parseSecondsInput(raw) {
