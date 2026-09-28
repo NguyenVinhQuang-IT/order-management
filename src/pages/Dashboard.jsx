@@ -83,6 +83,34 @@ function formatEnteredAt(iso) {
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+const COPY_COLUMNS = [
+  { id: "code", label: "Mã" },
+  { id: "type", label: "Công đoạn" },
+  { id: "employeeId", label: "Mã nhân viên" },
+  { id: "seconds", label: "Giây" },
+  { id: "time", label: "Thời gian" },
+  { id: "note", label: "Ghi chú" },
+];
+
+const headerCopyClass =
+  "cursor-pointer border-0 bg-transparent p-0 text-left text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink-muted-48 hover:text-primary";
+
+async function writeClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.left = "-9999px";
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  document.body.removeChild(area);
+}
+
 export default function Dashboard() {
   const notify = useToast();
   const isManager = useAtomValue(isManagerAtom);
@@ -257,6 +285,41 @@ export default function Dashboard() {
     });
   }
 
+  function columnValue(order, columnId) {
+    if (columnId === "code") return order.code || "";
+    if (columnId === "type") return getOrderTypeLabel(order.type);
+    if (columnId === "employeeId") return order.employeeId || "";
+    if (columnId === "seconds") {
+      const seconds = getOrderSeconds(order, typeSeconds, codeSeconds);
+      return seconds == null ? "" : String(seconds);
+    }
+    if (columnId === "time") {
+      const text = formatEnteredAt(order.updatedAt || order.createdAt);
+      return text === "—" ? "" : text;
+    }
+    if (columnId === "note") return order.note || "";
+    return "";
+  }
+
+  async function handleCopyColumn(column) {
+    const source =
+      selectedKeys.size > 0
+        ? visibleOrders.filter((order) => selectedKeys.has(recordKey(order)))
+        : pagedOrders;
+    const lines = source.map((order) => columnValue(order, column.id));
+    if (!lines.length) {
+      notify("Không có dữ liệu để copy.", "error");
+      return;
+    }
+    try {
+      await writeClipboard(lines.join("\n"));
+      const scope = selectedKeys.size > 0 ? "đã chọn" : "trang này";
+      notify(`Đã copy ${lines.length} ${column.label.toLowerCase()} (${scope}).`);
+    } catch {
+      notify("Không copy được. Hãy cho phép truy cập clipboard.", "error");
+    }
+  }
+
   function handleStartEdit(order) {
     setSecondsOpen(false);
     setEntryOpen(false);
@@ -343,12 +406,17 @@ export default function Dashboard() {
           ) : (
             <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0 select-none">
               <li className={`hidden border-b border-hairline px-6 py-3 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink-muted-48 desk:grid ${orderListCols} desk:gap-4`}>
-                <span>Mã</span>
-                <span>Công đoạn</span>
-                <span>Mã nhân viên</span>
-                <span>Giây</span>
-                <span>Thời gian</span>
-                <span>Ghi chú</span>
+                {COPY_COLUMNS.map((column) => (
+                  <button
+                    key={column.id}
+                    className={headerCopyClass}
+                    type="button"
+                    title={`Copy cột ${column.label}`}
+                    onClick={() => handleCopyColumn(column)}
+                  >
+                    {column.label}
+                  </button>
+                ))}
                 <span>Thao tác</span>
               </li>
               {pagedOrders.map((order, index) => {
@@ -492,6 +560,13 @@ export default function Dashboard() {
           <span className="whitespace-nowrap px-2 text-[15px] font-normal leading-none tracking-[-0.224px]">
             {selectedKeys.size} đơn đã chọn
           </span>
+          <button
+            className="h-9 cursor-pointer rounded-full border-0 bg-white/15 px-4 text-sm font-normal leading-none tracking-[-0.224px] text-white hover:bg-white/25"
+            type="button"
+            onClick={() => handleCopyColumn(COPY_COLUMNS[0])}
+          >
+            Copy mã
+          </button>
           <button
             className="h-9 cursor-pointer rounded-full border-0 bg-white/15 px-4 text-sm font-normal leading-none tracking-[-0.224px] text-white hover:bg-white/25"
             type="button"
