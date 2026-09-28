@@ -138,9 +138,11 @@ export default function Dashboard() {
     setSecondsOpen(false);
   }, []);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [selectedColumn, setSelectedColumn] = useState("code");
   const [page, setPage] = useState(0);
   const draggingRef = useRef(false);
   const anchorIndexRef = useRef(-1);
+  const dragColumnRef = useRef("code");
   const pageCount = Math.max(1, Math.ceil(visibleOrders.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
   const pageStart = currentPage * PAGE_SIZE;
@@ -239,15 +241,26 @@ export default function Dashboard() {
     notify(`Đã xóa ${count} đơn hàng.`);
   }
 
+  function columnFromEvent(event) {
+    const cell = event.target.closest("[data-column]");
+    return cell?.getAttribute("data-column") || null;
+  }
+
   function handleRowPointerDown(event, index, key) {
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, a")) return;
     if (dialogOpen || secondsOpen) return;
 
+    const column = columnFromEvent(event);
+    if (!column) return;
+
     event.preventDefault();
     draggingRef.current = true;
+    const sameColumn = column === selectedColumn;
+    dragColumnRef.current = column;
+    setSelectedColumn(column);
 
-    if (event.shiftKey && anchorIndexRef.current >= 0) {
+    if (event.shiftKey && sameColumn && anchorIndexRef.current >= 0) {
       const list = ordersRef.current;
       const start = Math.min(anchorIndexRef.current, index);
       const end = Math.max(anchorIndexRef.current, index);
@@ -262,7 +275,7 @@ export default function Dashboard() {
     }
 
     anchorIndexRef.current = index;
-    if (event.ctrlKey || event.metaKey) {
+    if ((event.ctrlKey || event.metaKey) && sameColumn) {
       setSelectedKeys((current) => {
         const next = new Set(current);
         if (next.has(key)) next.delete(key);
@@ -273,6 +286,13 @@ export default function Dashboard() {
     }
 
     setSelectedKeys(new Set([key]));
+  }
+
+  function handleSelectColumn(column) {
+    setSelectedColumn(column.id);
+    dragColumnRef.current = column.id;
+    setSelectedKeys(new Set(pagedOrders.map((order) => recordKey(order))));
+    anchorIndexRef.current = 0;
   }
 
   function goToPage(next) {
@@ -302,11 +322,12 @@ export default function Dashboard() {
   }
 
   async function handleCopyColumn(column) {
+    const active = column || COPY_COLUMNS.find((item) => item.id === selectedColumn) || COPY_COLUMNS[0];
     const source =
       selectedKeys.size > 0
         ? visibleOrders.filter((order) => selectedKeys.has(recordKey(order)))
         : pagedOrders;
-    const lines = source.map((order) => columnValue(order, column.id));
+    const lines = source.map((order) => columnValue(order, active.id));
     if (!lines.length) {
       notify("Không có dữ liệu để copy.", "error");
       return;
@@ -314,16 +335,41 @@ export default function Dashboard() {
     try {
       await writeClipboard(lines.join("\n"));
       const scope = selectedKeys.size > 0 ? "đã chọn" : "trang này";
-      notify(`Đã copy ${lines.length} ${column.label.toLowerCase()} (${scope}).`);
+      notify(`Đã copy ${lines.length} ${active.label.toLowerCase()} (${scope}).`);
     } catch {
       notify("Không copy được. Hãy cho phép truy cập clipboard.", "error");
     }
   }
 
+  useEffect(() => {
+    function handleCopyShortcut(event) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "c") return;
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) {
+        return;
+      }
+      if (!selectedKeys.size) return;
+      event.preventDefault();
+      handleCopyColumn();
+    }
+    window.addEventListener("keydown", handleCopyShortcut);
+    return () => window.removeEventListener("keydown", handleCopyShortcut);
+  }, [selectedKeys, selectedColumn, visibleOrders, pagedOrders, typeSeconds, codeSeconds]);
+
   function handleStartEdit(order) {
     setSecondsOpen(false);
     setEntryOpen(false);
     setEditingOrder(order);
+  }
+
+  function isCellSelected(key, columnId) {
+    return selectedKeys.has(key) && selectedColumn === columnId;
+  }
+
+  function cellClass(key, columnId, extra) {
+    return `${extra} -mx-1 rounded-md px-1 ${
+      isCellSelected(key, columnId) ? "bg-[#e8f1fb] text-ink" : ""
+    }`;
   }
 
   return (
@@ -409,10 +455,15 @@ export default function Dashboard() {
                 {COPY_COLUMNS.map((column) => (
                   <button
                     key={column.id}
-                    className={headerCopyClass}
+                    className={`${headerCopyClass} ${
+                      selectedColumn === column.id && selectedKeys.size
+                        ? "text-primary"
+                        : ""
+                    }`}
                     type="button"
-                    title={`Copy cột ${column.label}`}
-                    onClick={() => handleCopyColumn(column)}
+                    title={`Chọn cột ${column.label}`}
+                    aria-pressed={selectedColumn === column.id && selectedKeys.size > 0}
+                    onClick={() => handleSelectColumn(column)}
                   >
                     {column.label}
                   </button>
@@ -429,29 +480,46 @@ export default function Dashboard() {
                     data-order-key={key}
                     aria-selected={isSelected}
                     onPointerDown={(event) => handleRowPointerDown(event, index, key)}
-                    className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center ${isSelected ? "bg-[#e8f1fb]" : "bg-canvas"
-                      } ${index < pagedOrders.length - 1 ? "border-b border-hairline" : ""}`}
+                    className={`grid cursor-cell grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center bg-canvas ${index < pagedOrders.length - 1 ? "border-b border-hairline" : ""}`}
                   >
-                    <span className="text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums">
+                    <span
+                      data-column="code"
+                      className={cellClass(key, "code", "text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums")}
+                    >
                       {order.code}
                     </span>
-                    <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                    <span
+                      data-column="type"
+                      className={cellClass(key, "type", "col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink")}
+                    >
                       {getOrderTypeLabel(order.type)}
                     </span>
-                    <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
+                    <span
+                      data-column="employeeId"
+                      className={cellClass(key, "employeeId", "col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]")}
+                    >
                       <span className="desk:hidden">Mã NV </span>
                       {order.employeeId || "—"}
                     </span>
-                    <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                    <span
+                      data-column="seconds"
+                      className={cellClass(key, "seconds", "col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink")}
+                    >
                       <span className="desk:hidden">Giây </span>
                       {formatSeconds(
                         getOrderSeconds(order, typeSeconds, codeSeconds),
                       )}
                     </span>
-                    <span className="col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
+                    <span
+                      data-column="time"
+                      className={cellClass(key, "time", "col-start-1 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]")}
+                    >
                       {formatEnteredAt(order.updatedAt || order.createdAt)}
                     </span>
-                    <span className="col-start-1 break-words text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                    <span
+                      data-column="note"
+                      className={cellClass(key, "note", "col-start-1 break-words text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:col-start-auto desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink")}
+                    >
                       {order.note ? (
                         order.note
                       ) : (
@@ -558,14 +626,16 @@ export default function Dashboard() {
       {selectedKeys.size > 0 ? (
         <div className="fixed bottom-8 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-ink px-4 py-2 text-white">
           <span className="whitespace-nowrap px-2 text-[15px] font-normal leading-none tracking-[-0.224px]">
-            {selectedKeys.size} đơn đã chọn
+            {selectedKeys.size}{" "}
+            {(COPY_COLUMNS.find((item) => item.id === selectedColumn) || COPY_COLUMNS[0]).label.toLowerCase()}{" "}
+            đã chọn
           </span>
           <button
             className="h-9 cursor-pointer rounded-full border-0 bg-white/15 px-4 text-sm font-normal leading-none tracking-[-0.224px] text-white hover:bg-white/25"
             type="button"
-            onClick={() => handleCopyColumn(COPY_COLUMNS[0])}
+            onClick={() => handleCopyColumn()}
           >
-            Copy mã
+            Copy
           </button>
           <button
             className="h-9 cursor-pointer rounded-full border-0 bg-white/15 px-4 text-sm font-normal leading-none tracking-[-0.224px] text-white hover:bg-white/25"
