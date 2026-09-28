@@ -186,29 +186,106 @@ export function parseLocalDay(value) {
 
 export function normalizeSearchQuery(raw) {
   return String(raw ?? "")
-    .trim()
-    .toLowerCase()
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .normalize("NFKC")
     .normalize("NFD")
     .replace(/\p{M}+/gu, "")
-    .replace(/đ/g, "d");
+    .replace(/đ/g, "d")
+    .trim()
+    .toLowerCase();
+}
+
+function compactSearchToken(raw) {
+  return normalizeSearchQuery(raw).replace(/[^a-z0-9]+/g, "");
+}
+
+function stripSearchQuotes(raw) {
+  return String(raw ?? "").replace(/^[\s"'“”‘’`]+|[\s"'“”‘’`]+$/g, "");
+}
+
+export function parseSearchLines(raw) {
+  const tokens = [];
+  const seen = new Set();
+  const chunks = String(raw ?? "").split(/[\r\n,;]+/);
+
+  for (const chunk of chunks) {
+    const text = stripSearchQuotes(
+      String(chunk ?? "").replace(/[\u200B-\u200D\uFEFF]/g, ""),
+    ).trim();
+    if (!text) continue;
+
+    const words = text.split(/\s+/).filter(Boolean);
+    const asCodes =
+      words.length > 1 &&
+      words.every((word) => /\d/.test(word) && word.replace(/[^a-z0-9]/gi, "").length >= 3);
+    const pieces = asCodes ? words : [text];
+
+    for (const piece of pieces) {
+      const needle = normalizeSearchQuery(stripSearchQuotes(piece));
+      if (!needle || seen.has(needle)) continue;
+      seen.add(needle);
+      tokens.push(needle);
+    }
+  }
+
+  return tokens;
+}
+
+function orderSearchFields(order) {
+  const values = [
+    order.code,
+    order.employeeId,
+    order.note,
+    getOrderTypeLabel(order.type),
+    getOrderKind(order) === "pd" ? "ma pd" : "ma co",
+  ].map((value) => normalizeSearchQuery(value));
+  return {
+    code: normalizeSearchQuery(order.code),
+    compactCode: compactSearchToken(order.code),
+    fields: values,
+  };
+}
+
+function needleMatchesOrder(needle, fields) {
+  if (!needle) return false;
+  if (fields.code === needle) return "exact";
+  const compact = compactSearchToken(needle);
+  if (compact && fields.compactCode === compact) return "exact";
+  if (fields.fields.some((field) => field.includes(needle))) return "fuzzy";
+  if (compact.length >= 3 && fields.compactCode.includes(compact)) return "fuzzy";
+  return null;
 }
 
 export function filterOrdersByQuery(orders, query) {
   const list = Array.isArray(orders) ? orders : [];
-  const needle = normalizeSearchQuery(query);
-  if (!needle) return list;
+  const needles = parseSearchLines(query);
+  if (!needles.length) return list;
 
-  return list.filter((order) => {
-    const haystack = [
-      order.code,
-      order.employeeId,
-      order.note,
-      getOrderTypeLabel(order.type),
-      getOrderKind(order) === "pd" ? "ma pd" : "ma co",
-    ]
-      .map((value) => normalizeSearchQuery(value))
-      .join("\n");
-    return haystack.includes(needle);
+  const scored = [];
+  for (const order of list) {
+    const fields = orderSearchFields(order);
+    let rank = Infinity;
+    for (let index = 0; index < needles.length; index += 1) {
+      const match = needleMatchesOrder(needles[index], fields);
+      if (!match) continue;
+      const next = match === "exact" ? index : index + needles.length;
+      if (next < rank) rank = next;
+    }
+    if (rank !== Infinity) scored.push({ order, rank });
+  }
+
+  scored.sort((left, right) => left.rank - right.rank);
+  return scored.map((item) => item.order);
+}
+
+export function unmatchedSearchCodes(orders, query) {
+  const needles = parseSearchLines(query);
+  if (needles.length < 2) return [];
+  const list = Array.isArray(orders) ? orders : [];
+  const catalog = list.map((order) => orderSearchFields(order));
+  return needles.filter((needle) => {
+    if (!/\d/.test(needle)) return false;
+    return !catalog.some((fields) => needleMatchesOrder(needle, fields));
   });
 }
 
@@ -241,7 +318,7 @@ export function filterOrders(orders, { from, to, query, type, kind } = {}) {
 }
 
 export function hasActiveOrderFilters({ from, to, query, type, kind } = {}) {
-  return Boolean(from || to || normalizeSearchQuery(query) || type || kind);
+  return Boolean(from || to || parseSearchLines(query).length || type || kind);
 }
 
 export function filterOrdersByDateRange(orders, from, to) {
@@ -535,6 +612,10 @@ export const accessibleOrdersAtom = atom((get) => {
   if (session.role === "manager") return orders;
   return filterOrdersByEmployee(orders, session.employeeId);
 });
+
+export const unmatchedSearchAtom = atom((get) =>
+  unmatchedSearchCodes(get(accessibleOrdersAtom), get(searchQueryAtom)),
+);
 
 export const filteredOrdersAtom = atom((get) =>
   filterOrders(get(accessibleOrdersAtom), {
