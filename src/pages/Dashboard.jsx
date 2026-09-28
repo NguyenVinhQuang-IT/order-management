@@ -8,13 +8,18 @@ import SecondsEditDialog from "../components/SecondsEditDialog";
 import { useToast } from "../components/Toast";
 import {
   accessibleOrdersAtom,
+  dateFromAtom,
+  dateToAtom,
   filteredOrdersAtom,
   getOrderKind,
   getOrderTypeLabel,
   hasActiveFiltersAtom,
+  orderKindFilterAtom,
+  orderTypeFilterAtom,
   recordKey,
   removeOrderAtom,
   removeOrdersByKeysAtom,
+  searchQueryAtom,
 } from "../orders";
 import {
   codeSecondsAtom,
@@ -32,8 +37,40 @@ const secondaryButtonClass =
 const textLinkClass =
   "cursor-pointer border-0 bg-transparent p-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-primary";
 
+const PAGE_SIZE = 50;
+
 const orderListCols =
   "desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.55fr)_minmax(0,0.45fr)_minmax(0,1fr)_minmax(0,1fr)_auto]";
+
+const pageButtonClass =
+  "h-9 min-w-9 cursor-pointer rounded-full border border-black/8 bg-canvas px-3 text-sm font-normal leading-none tracking-[-0.224px] text-ink hover:bg-black/4 disabled:cursor-default disabled:opacity-[0.4]";
+
+const pageButtonActiveClass =
+  "h-9 min-w-9 cursor-pointer rounded-full border border-ink bg-ink px-3 text-sm font-normal leading-none tracking-[-0.224px] text-white";
+
+function getPageItems(current, total) {
+  if (total <= 7) return Array.from({ length: total }, (_, index) => index);
+  const pages = new Set([0, total - 1, current - 1, current, current + 1]);
+  if (current <= 2) {
+    pages.add(2);
+    pages.add(3);
+  }
+  if (current >= total - 3) {
+    pages.add(total - 4);
+    pages.add(total - 3);
+  }
+  const sorted = [...pages]
+    .filter((page) => page >= 0 && page < total)
+    .sort((left, right) => left - right);
+  const items = [];
+  let previous = null;
+  for (const page of sorted) {
+    if (previous != null && page - previous > 1) items.push("…");
+    items.push(page);
+    previous = page;
+  }
+  return items;
+}
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -52,6 +89,11 @@ export default function Dashboard() {
   const orders = useAtomValue(accessibleOrdersAtom);
   const visibleOrders = useAtomValue(filteredOrdersAtom);
   const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
+  const searchQuery = useAtomValue(searchQueryAtom);
+  const orderTypeFilter = useAtomValue(orderTypeFilterAtom);
+  const orderKindFilter = useAtomValue(orderKindFilterAtom);
+  const dateFrom = useAtomValue(dateFromAtom);
+  const dateTo = useAtomValue(dateToAtom);
   const typeSeconds = useAtomValue(typeSecondsAtom);
   const codeSeconds = useAtomValue(codeSecondsAtom);
   const removeOrder = useSetAtom(removeOrderAtom);
@@ -68,10 +110,15 @@ export default function Dashboard() {
     setSecondsOpen(false);
   }, []);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
+  const [page, setPage] = useState(0);
   const draggingRef = useRef(false);
   const anchorIndexRef = useRef(-1);
-  const ordersRef = useRef(visibleOrders);
-  ordersRef.current = visibleOrders;
+  const pageCount = Math.max(1, Math.ceil(visibleOrders.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageStart = currentPage * PAGE_SIZE;
+  const pagedOrders = visibleOrders.slice(pageStart, pageStart + PAGE_SIZE);
+  const ordersRef = useRef(pagedOrders);
+  ordersRef.current = pagedOrders;
 
   useEffect(() => {
     document.title = "Nhập đơn hàng";
@@ -83,6 +130,14 @@ export default function Dashboard() {
   useEffect(() => {
     if (!isManager) closeSeconds();
   }, [isManager, closeSeconds]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [searchQuery, orderTypeFilter, orderKindFilter, dateFrom, dateTo]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
 
   useEffect(() => {
     const valid = new Set(
@@ -192,6 +247,16 @@ export default function Dashboard() {
     setSelectedKeys(new Set([key]));
   }
 
+  function goToPage(next) {
+    const clamped = Math.max(0, Math.min(next, pageCount - 1));
+    setPage(clamped);
+    anchorIndexRef.current = -1;
+    document.getElementById("order-list-heading")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
   function handleStartEdit(order) {
     setSecondsOpen(false);
     setEntryOpen(false);
@@ -286,7 +351,7 @@ export default function Dashboard() {
                 <span>Ghi chú</span>
                 <span>Thao tác</span>
               </li>
-              {visibleOrders.map((order, index) => {
+              {pagedOrders.map((order, index) => {
                 const key = recordKey(order);
                 const isSelected = selectedKeys.has(key);
                 return (
@@ -297,7 +362,7 @@ export default function Dashboard() {
                     aria-selected={isSelected}
                     onPointerDown={(event) => handleRowPointerDown(event, index, key)}
                     className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center ${isSelected ? "bg-[#e8f1fb]" : "bg-canvas"
-                      } ${index < visibleOrders.length - 1 ? "border-b border-hairline" : ""}`}
+                      } ${index < pagedOrders.length - 1 ? "border-b border-hairline" : ""}`}
                   >
                     <span className="text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums">
                       {order.code}
@@ -356,6 +421,59 @@ export default function Dashboard() {
               })}
             </ul>
           )}
+
+          {visibleOrders.length > PAGE_SIZE ? (
+            <nav
+              className="mt-6 flex flex-col gap-3 tablet:flex-row tablet:items-center tablet:justify-between"
+              aria-label="Phân trang"
+            >
+              <p className="m-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-ink-muted-48">
+                {pageStart + 1}–{pageStart + pagedOrders.length} / {visibleOrders.length}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  className={pageButtonClass}
+                  type="button"
+                  disabled={currentPage === 0}
+                  onClick={() => goToPage(currentPage - 1)}
+                >
+                  Trước
+                </button>
+                {getPageItems(currentPage, pageCount).map((item, index) =>
+                  item === "…" ? (
+                    <span
+                      key={`ellipsis-${index}`}
+                      className="px-1 text-sm text-ink-muted-48"
+                    >
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={item}
+                      className={
+                        item === currentPage
+                          ? pageButtonActiveClass
+                          : pageButtonClass
+                      }
+                      type="button"
+                      aria-current={item === currentPage ? "page" : undefined}
+                      onClick={() => goToPage(item)}
+                    >
+                      {item + 1}
+                    </button>
+                  ),
+                )}
+                <button
+                  className={pageButtonClass}
+                  type="button"
+                  disabled={currentPage >= pageCount - 1}
+                  onClick={() => goToPage(currentPage + 1)}
+                >
+                  Sau
+                </button>
+              </div>
+            </nav>
+          ) : null}
         </section>
       </main>
 
