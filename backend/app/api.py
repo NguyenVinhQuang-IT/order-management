@@ -186,7 +186,8 @@ def orders_show(order_id):
 def orders_create():
     result, error = add_orders(get_current_user(), json_body())
     if error:
-        return fail(error)
+        status = 403 if error == "Chỉ quản lý mới sửa được số giây." else 400
+        return fail(error, status)
     return jsonify(result), 201
 
 

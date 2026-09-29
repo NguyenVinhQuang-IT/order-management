@@ -796,10 +796,24 @@ export const addOrdersAtom = atom(
   null,
   async (get, set, codes, _employeeId, type, note = "", seconds = null, kind = "co") => {
     const current = get(ordersAtom);
+    if (seconds != null && get(sessionAtom)?.role !== "manager") {
+      return {
+        orders: current,
+        added: [],
+        duplicates: [],
+        error: "Chỉ quản lý mới sửa được số giây.",
+      };
+    }
     try {
       const data = await api("/orders", {
         method: "POST",
-        body: { codes, type, note, seconds, kind: getOrderKind(kind) },
+        body: {
+          codes,
+          type,
+          note,
+          kind: getOrderKind(kind),
+          ...(typeof seconds === "number" ? { seconds } : {}),
+        },
       });
       const orders = await refreshOrders(get, set, { page: 0 });
       return {

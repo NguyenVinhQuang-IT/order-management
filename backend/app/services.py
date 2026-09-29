@@ -632,9 +632,15 @@ def add_orders(user, payload):
     if kind == "pd" and not process["allows_pd"]:
         return None, "Công đoạn này không dùng mã PD."
 
-    seconds, seconds_error = parse_seconds(payload.get("seconds")) if "seconds" in payload else (None, "")
-    if seconds_error:
-        return None, seconds_error
+    raw_seconds = payload.get("seconds") if "seconds" in payload else None
+    if raw_seconds not in (None, ""):
+        if user["role"] != "manager":
+            return None, "Chỉ quản lý mới sửa được số giây."
+        seconds, seconds_error = parse_seconds(raw_seconds)
+        if seconds_error:
+            return None, seconds_error
+    else:
+        seconds = None
 
     emp_id = user["id"]
     note = normalize_note(payload.get("note"))

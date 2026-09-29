@@ -175,6 +175,57 @@ def test_manager_type_seconds(client, login):
     assert created.get_json()["added"][0]["seconds"] == 120
 
 
+def test_employee_cannot_set_seconds_on_create(client, login):
+    headers, _ = login()
+    created = client.post(
+        "/api/orders",
+        json={"codes": ["S3"], "type": "lam-don", "seconds": 15},
+        headers=headers,
+    )
+    assert created.status_code == 403
+    assert created.get_json()["error"] == "Chỉ quản lý mới sửa được số giây."
+    listed = client.get("/api/orders", headers=headers)
+    assert listed.get_json()["total"] == 0
+
+
+def test_employee_cannot_override_someone_elses_seconds(client, login):
+    owner, _ = login("1", "123456", "employee")
+    created = client.post(
+        "/api/orders",
+        json={"codes": ["SHARED"], "type": "lam-don"},
+        headers=owner,
+    )
+    order_id = created.get_json()["added"][0]["id"]
+    manager, _ = login("169", "123456", "manager")
+    updated = client.put(
+        f"/api/orders/{order_id}/seconds",
+        json={"seconds": 30},
+        headers=manager,
+    )
+    assert updated.status_code == 200
+
+    other, _ = login("2", "123456", "employee")
+    again = client.post(
+        "/api/orders",
+        json={"codes": ["SHARED"], "type": "lam-don", "seconds": 99},
+        headers=other,
+    )
+    assert again.status_code == 403
+    shown = client.get(f"/api/orders/{order_id}", headers=manager)
+    assert shown.get_json()["seconds"] == 30
+
+
+def test_manager_can_set_seconds_on_create(client, login):
+    manager, _ = login("169", "123456", "manager")
+    created = client.post(
+        "/api/orders",
+        json={"codes": ["S4"], "type": "lam-don", "seconds": 40},
+        headers=manager,
+    )
+    assert created.status_code == 201
+    assert created.get_json()["added"][0]["seconds"] == 40
+
+
 def test_employee_cannot_update_seconds(client, login):
     headers, _ = login()
     created = client.post(
