@@ -214,7 +214,7 @@ export const saveOneTypeSecondsAtom = atom(null, async (get, set, typeId, raw) =
   try {
     const data = await api("/settings/type-seconds", {
       method: "PUT",
-      body: { type: typeId, seconds: parsed.value },
+      body: { type: typeId, seconds: parsed.value, clear_order_seconds: true },
     });
     await applySettingsAndOrders(set, data);
     return { error: "", value: parsed.value };

@@ -1,4 +1,4 @@
-import { recordKey } from "../../orders";
+import { ORDERS_PAGE_SIZE, recordKey } from "../../orders";
 import { useSecondsEditForm } from "./context";
 import {
   textFieldClass,
@@ -104,33 +104,46 @@ export function OrderPickerField() {
     query,
     setQuery,
     selectedKeys,
-    typeOrders,
     visibleOrders,
     toggleKey,
     handleSelectVisible,
+    pickerPage,
+    pickerPageCount,
+    pickerTotal,
+    pickerLoading,
+    setPickerPage,
   } = useSecondsEditForm();
+  const showSearch = Boolean(query) || pickerTotal > 0 || visibleOrders.length > 0;
+  const rangeStart = pickerPage * ORDERS_PAGE_SIZE + 1;
+  const rangeEnd = rangeStart + visibleOrders.length - 1;
 
   return (
     <div className="mb-6 flex flex-col gap-2">
       <span className="text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink">
         Mã đơn
       </span>
-      {typeOrders.length === 0 ? (
+      {showSearch ? (
+        <input
+          className={`${textFieldClass} tabular-nums`}
+          type="search"
+          name="orderSearch"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Tìm mã đơn"
+        />
+      ) : null}
+      {pickerLoading && visibleOrders.length === 0 ? (
         <p className="m-0 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48">
-          Chưa có đơn ở công đoạn này.
+          Đang tải.
+        </p>
+      ) : pickerTotal === 0 ? (
+        <p className="m-0 text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48">
+          {query ? "Không có mã khớp." : "Chưa có đơn ở công đoạn này."}
         </p>
       ) : (
         <>
-          <input
-            className={`${textFieldClass} tabular-nums`}
-            type="search"
-            name="orderSearch"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-            aria-label="Tìm mã đơn"
-          />
           <div className="flex items-center justify-between gap-4">
             <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48">
               {selectedKeys.size} đã chọn
@@ -141,7 +154,7 @@ export function OrderPickerField() {
                 type="button"
                 onClick={() => handleSelectVisible(true)}
               >
-                Chọn tất cả
+                {pickerTotal > visibleOrders.length ? "Chọn trang này" : "Chọn tất cả"}
               </button>
               <button
                 className={textLinkClass}
@@ -189,6 +202,31 @@ export function OrderPickerField() {
               })
             )}
           </ul>
+          {pickerTotal > visibleOrders.length ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-48 tabular-nums">
+                {rangeStart}–{rangeEnd} / {pickerTotal}
+              </span>
+              <div className="flex items-center gap-4">
+                <button
+                  className={`${textLinkClass} disabled:cursor-default disabled:opacity-[0.4]`}
+                  type="button"
+                  disabled={pickerPage === 0}
+                  onClick={() => setPickerPage((current) => Math.max(0, current - 1))}
+                >
+                  Trước
+                </button>
+                <button
+                  className={`${textLinkClass} disabled:cursor-default disabled:opacity-[0.4]`}
+                  type="button"
+                  disabled={pickerPage >= pickerPageCount - 1}
+                  onClick={() => setPickerPage((current) => current + 1)}
+                >
+                  Sau
+                </button>
+              </div>
+            </div>
+          ) : null}
         </>
       )}
     </div>

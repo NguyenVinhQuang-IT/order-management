@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
+import { api } from "../api";
 import {
   employeesAtom,
   getEmployee,
@@ -17,21 +18,14 @@ import {
   ExpandableDayChart,
 } from "../components/StatsCharts";
 import {
-  dateFromAtom,
-  dateToAtom,
-  filteredOrdersAtom,
-  hasActiveFiltersAtom,
-  ordersAtom,
-  summarizeOrders,
+  buildStatsQuery,
+  daySeriesFromStats,
+  emptyServerStats,
+  mapServerStats,
+  secondsSummaryFromStats,
 } from "../orders";
-import {
-  codeSecondsAtom,
-  formatCount,
-  formatSeconds,
-  sumOrderSeconds,
-  sumSecondsByType,
-  typeSecondsAtom,
-} from "../settings";
+import { formatCount, formatSeconds } from "../settings";
+import { useDebouncedFilters } from "../useOrderList";
 
 function MetricCard({ label, value }) {
   return (
@@ -50,37 +44,27 @@ const typeTableCols = "desk:grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,
 
 export default function Stats() {
   const employees = useAtomValue(employeesAtom);
-  const orders = useAtomValue(ordersAtom);
-  const visibleOrders = useAtomValue(filteredOrdersAtom);
-  const dateFrom = useAtomValue(dateFromAtom);
-  const dateTo = useAtomValue(dateToAtom);
-  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
-  const hasDateRange = Boolean(dateFrom || dateTo);
-  const typeSeconds = useAtomValue(typeSecondsAtom);
-  const codeSeconds = useAtomValue(codeSecondsAtom);
-  const stats = useMemo(
-    () => summarizeOrders(visibleOrders, { from: dateFrom, to: dateTo }),
-    [visibleOrders, dateFrom, dateTo],
-  );
+  const filters = useDebouncedFilters();
+  const hasDateRange = Boolean(filters.from || filters.to);
+  const [stats, setStats] = useState(emptyServerStats);
+  const [ready, setReady] = useState(false);
   const secondsByType = useMemo(
-    () => sumSecondsByType(visibleOrders, typeSeconds, codeSeconds),
-    [visibleOrders, typeSeconds, codeSeconds],
+    () => secondsSummaryFromStats(stats.byType),
+    [stats.byType],
+  );
+  const days = useMemo(
+    () => daySeriesFromStats(stats.byDay, filters.from, filters.to),
+    [stats.byDay, filters.from, filters.to],
   );
   const employeeRows = useMemo(
     () =>
       stats.byEmployee
         .filter((item) => getEmployee(item.employeeId, employees))
-        .map((item) => {
-          const theirs = visibleOrders.filter((order) =>
-            sameEmployeeId(order.employeeId, item.employeeId),
-          );
-          return {
-            ...item,
-            name: getEmployeeName(item.employeeId, employees),
-            seconds: sumOrderSeconds(theirs, typeSeconds, codeSeconds),
-          };
-        }),
-    [stats.byEmployee, visibleOrders, typeSeconds, codeSeconds, employees],
+        .map((item) => ({
+          ...item,
+          name: getEmployeeName(item.employeeId, employees),
+        })),
+    [stats.byEmployee, employees],
   );
   const directoryRows = useMemo(() => {
     return listDirectoryEmployees(employees).map((person) => ({
@@ -91,12 +75,37 @@ export default function Stats() {
         )?.count ?? 0,
     }));
   }, [employeeRows, employees]);
-  const emptyMessage =
-    orders.length === 0
-      ? "Chưa có đơn hàng."
-      : hasActiveFilters
-        ? "Không có đơn khớp với bộ lọc."
-        : "Chưa có đơn hàng.";
+  const emptyMessage = !ready
+    ? "Đang tải."
+    : stats.total === 0 && filters.hasActiveFilters
+      ? "Không có đơn khớp với bộ lọc."
+      : "Chưa có đơn hàng.";
+
+  useEffect(() => {
+    let cancelled = false;
+    setReady(false);
+    api("/stats", {
+      query: buildStatsQuery({
+        q: filters.query,
+        type: filters.type,
+        kind: filters.kind,
+        from: filters.from,
+        to: filters.to,
+      }),
+    })
+      .then((data) => {
+        if (!cancelled) setStats(mapServerStats(data));
+      })
+      .catch(() => {
+        if (!cancelled) setStats(emptyServerStats);
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filters.query, filters.type, filters.kind, filters.from, filters.to]);
 
   useEffect(() => {
     document.title = "Thống kê";
@@ -144,7 +153,7 @@ export default function Stats() {
           <ExpandableDayChart
             className="desk:col-span-2"
             title={hasDateRange ? "Đơn theo ngày" : "Đơn 14 ngày gần đây"}
-            items={stats.byDay}
+            items={days}
           />
           <ChartCard className="desk:col-span-3" title="Theo nhân viên">
             <EmployeeBarChart items={employeeRows} empty={emptyMessage} />

@@ -4,23 +4,22 @@ import { isManagerAtom } from "../auth";
 import GlobalNav from "../components/GlobalNav";
 import OrderEntryDialog from "../components/OrderEntryDialog";
 import OrderFilters from "../components/OrderFilters";
+import OrderPager from "../components/OrderPager";
 import SecondsEditDialog from "../components/SecondsEditDialog";
 import { useToast } from "../components/Toast";
 import {
   accessibleOrdersAtom,
-  dateFromAtom,
-  dateToAtom,
-  filteredOrdersAtom,
   getOrderKind,
   getOrderTypeLabel,
-  hasActiveFiltersAtom,
-  orderKindFilterAtom,
-  orderTypeFilterAtom,
+  orderPageAtom,
+  ordersLoadingAtom,
+  ordersPageSizeAtom,
+  ordersTotalAtom,
   recordKey,
   removeOrderAtom,
   removeOrdersByKeysAtom,
-  searchQueryAtom,
 } from "../orders";
+import { useOrderListLoader } from "../useOrderList";
 import {
   codeSecondsAtom,
   formatSeconds,
@@ -37,40 +36,8 @@ const secondaryButtonClass =
 const textLinkClass =
   "cursor-pointer border-0 bg-transparent p-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-primary";
 
-const PAGE_SIZE = 50;
-
 const orderListCols =
   "desk:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.55fr)_minmax(0,0.45fr)_minmax(0,1fr)_minmax(0,1fr)_auto]";
-
-const pageButtonClass =
-  "h-9 min-w-9 cursor-pointer rounded-full border border-black/8 bg-canvas px-3 text-sm font-normal leading-none tracking-[-0.224px] text-ink hover:bg-black/4 disabled:cursor-default disabled:opacity-[0.4]";
-
-const pageButtonActiveClass =
-  "h-9 min-w-9 cursor-pointer rounded-full border border-ink bg-ink px-3 text-sm font-normal leading-none tracking-[-0.224px] text-white";
-
-function getPageItems(current, total) {
-  if (total <= 7) return Array.from({ length: total }, (_, index) => index);
-  const pages = new Set([0, total - 1, current - 1, current, current + 1]);
-  if (current <= 2) {
-    pages.add(2);
-    pages.add(3);
-  }
-  if (current >= total - 3) {
-    pages.add(total - 4);
-    pages.add(total - 3);
-  }
-  const sorted = [...pages]
-    .filter((page) => page >= 0 && page < total)
-    .sort((left, right) => left - right);
-  const items = [];
-  let previous = null;
-  for (const page of sorted) {
-    if (previous != null && page - previous > 1) items.push("…");
-    items.push(page);
-    previous = page;
-  }
-  return items;
-}
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -114,14 +81,13 @@ async function writeClipboard(text) {
 export default function Dashboard() {
   const notify = useToast();
   const isManager = useAtomValue(isManagerAtom);
+  const { hasActiveFilters } = useOrderListLoader();
   const orders = useAtomValue(accessibleOrdersAtom);
-  const visibleOrders = useAtomValue(filteredOrdersAtom);
-  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
-  const searchQuery = useAtomValue(searchQueryAtom);
-  const orderTypeFilter = useAtomValue(orderTypeFilterAtom);
-  const orderKindFilter = useAtomValue(orderKindFilterAtom);
-  const dateFrom = useAtomValue(dateFromAtom);
-  const dateTo = useAtomValue(dateToAtom);
+  const totalOrders = useAtomValue(ordersTotalAtom);
+  const pageSize = useAtomValue(ordersPageSizeAtom);
+  const page = useAtomValue(orderPageAtom);
+  const setPage = useSetAtom(orderPageAtom);
+  const ordersLoading = useAtomValue(ordersLoadingAtom);
   const typeSeconds = useAtomValue(typeSecondsAtom);
   const codeSeconds = useAtomValue(codeSecondsAtom);
   const removeOrder = useSetAtom(removeOrderAtom);
@@ -139,16 +105,12 @@ export default function Dashboard() {
   }, []);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [selectedColumn, setSelectedColumn] = useState("code");
-  const [page, setPage] = useState(0);
   const draggingRef = useRef(false);
   const anchorIndexRef = useRef(-1);
   const dragColumnRef = useRef("code");
-  const pageCount = Math.max(1, Math.ceil(visibleOrders.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount - 1);
-  const pageStart = currentPage * PAGE_SIZE;
-  const pagedOrders = visibleOrders.slice(pageStart, pageStart + PAGE_SIZE);
-  const ordersRef = useRef(pagedOrders);
-  ordersRef.current = pagedOrders;
+  const pageCount = Math.max(1, Math.ceil(totalOrders / pageSize));
+  const ordersRef = useRef(orders);
+  ordersRef.current = orders;
 
   useEffect(() => {
     document.title = "Nhập đơn hàng";
@@ -162,17 +124,7 @@ export default function Dashboard() {
   }, [isManager, closeSeconds]);
 
   useEffect(() => {
-    setPage(0);
-  }, [searchQuery, orderTypeFilter, orderKindFilter, dateFrom, dateTo]);
-
-  useEffect(() => {
-    setPage((current) => Math.min(current, pageCount - 1));
-  }, [pageCount]);
-
-  useEffect(() => {
-    const valid = new Set(
-      visibleOrders.map((order) => recordKey(order)),
-    );
+    const valid = new Set(orders.map((order) => recordKey(order)));
     setSelectedKeys((current) => {
       const next = new Set([...current].filter((key) => valid.has(key)));
       return next.size === current.size ? current : next;
@@ -182,7 +134,7 @@ export default function Dashboard() {
         ? null
         : current,
     );
-  }, [visibleOrders]);
+  }, [orders]);
 
   useEffect(() => {
     function selectRange(from, to) {
@@ -223,7 +175,11 @@ export default function Dashboard() {
     if (editingOrder && recordKey(editingOrder) === recordKey(order)) {
       setEditingOrder(null);
     }
-    await removeOrder(order.code, order.type, getOrderKind(order));
+    const result = await removeOrder(order.code, order.type, getOrderKind(order));
+    if (result?.error) {
+      notify(result.error, "error");
+      return;
+    }
     notify(`Đã xóa ${order.code}.`);
   }
 
@@ -235,7 +191,11 @@ export default function Dashboard() {
   async function handleRemoveSelected() {
     const count = selectedKeys.size;
     if (count === 0) return;
-    await removeOrdersByKeys(selectedKeys);
+    const result = await removeOrdersByKeys(selectedKeys);
+    if (result?.error) {
+      notify(result.error, "error");
+      return;
+    }
     setSelectedKeys(new Set());
     setEditingOrder(null);
     notify(`Đã xóa ${count} đơn hàng.`);
@@ -291,7 +251,7 @@ export default function Dashboard() {
   function handleSelectColumn(column) {
     setSelectedColumn(column.id);
     dragColumnRef.current = column.id;
-    setSelectedKeys(new Set(pagedOrders.map((order) => recordKey(order))));
+    setSelectedKeys(new Set(orders.map((order) => recordKey(order))));
     anchorIndexRef.current = 0;
   }
 
@@ -325,8 +285,8 @@ export default function Dashboard() {
     const active = column || COPY_COLUMNS.find((item) => item.id === selectedColumn) || COPY_COLUMNS[0];
     const source =
       selectedKeys.size > 0
-        ? visibleOrders.filter((order) => selectedKeys.has(recordKey(order)))
-        : pagedOrders;
+        ? orders.filter((order) => selectedKeys.has(recordKey(order)))
+        : orders;
     const lines = source.map((order) => columnValue(order, active.id));
     if (!lines.length) {
       notify("Không có dữ liệu để copy.", "error");
@@ -354,7 +314,7 @@ export default function Dashboard() {
     }
     window.addEventListener("keydown", handleCopyShortcut);
     return () => window.removeEventListener("keydown", handleCopyShortcut);
-  }, [selectedKeys, selectedColumn, visibleOrders, pagedOrders, typeSeconds, codeSeconds]);
+  }, [selectedKeys, selectedColumn, orders, typeSeconds, codeSeconds]);
 
   function handleStartEdit(order) {
     setSecondsOpen(false);
@@ -428,9 +388,9 @@ export default function Dashboard() {
             className="m-0 mb-4 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
           >
             Đơn đã nhập
-            {visibleOrders.length ? (
+            {totalOrders ? (
               <span className="ml-2 font-normal text-ink-muted-48">
-                {visibleOrders.length}
+                {totalOrders}
               </span>
             ) : null}
           </h2>
@@ -439,11 +399,11 @@ export default function Dashboard() {
             <OrderFilters />
           </div>
 
-          {orders.length === 0 ? (
+          {ordersLoading && orders.length === 0 ? (
             <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">
-              Chưa có đơn hàng.
+              Đang tải.
             </p>
-          ) : visibleOrders.length === 0 ? (
+          ) : orders.length === 0 ? (
             <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">
               {hasActiveFilters
                 ? "Không có đơn khớp với bộ lọc."
@@ -470,7 +430,7 @@ export default function Dashboard() {
                 ))}
                 <span>Thao tác</span>
               </li>
-              {pagedOrders.map((order, index) => {
+              {orders.map((order, index) => {
                 const key = recordKey(order);
                 const isSelected = selectedKeys.has(key);
                 return (
@@ -480,7 +440,7 @@ export default function Dashboard() {
                     data-order-key={key}
                     aria-selected={isSelected}
                     onPointerDown={(event) => handleRowPointerDown(event, index, key)}
-                    className={`grid cursor-cell grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center bg-canvas ${index < pagedOrders.length - 1 ? "border-b border-hairline" : ""}`}
+                    className={`grid cursor-cell grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center bg-canvas ${index < orders.length - 1 ? "border-b border-hairline" : ""}`}
                   >
                     <span
                       data-column="code"
@@ -558,58 +518,14 @@ export default function Dashboard() {
             </ul>
           )}
 
-          {visibleOrders.length > PAGE_SIZE ? (
-            <nav
-              className="mt-6 flex flex-col gap-3 tablet:flex-row tablet:items-center tablet:justify-between"
-              aria-label="Phân trang"
-            >
-              <p className="m-0 text-sm font-normal leading-[1.29] tracking-[-0.224px] text-ink-muted-48">
-                {pageStart + 1}–{pageStart + pagedOrders.length} / {visibleOrders.length}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  className={pageButtonClass}
-                  type="button"
-                  disabled={currentPage === 0}
-                  onClick={() => goToPage(currentPage - 1)}
-                >
-                  Trước
-                </button>
-                {getPageItems(currentPage, pageCount).map((item, index) =>
-                  item === "…" ? (
-                    <span
-                      key={`ellipsis-${index}`}
-                      className="px-1 text-sm text-ink-muted-48"
-                    >
-                      …
-                    </span>
-                  ) : (
-                    <button
-                      key={item}
-                      className={
-                        item === currentPage
-                          ? pageButtonActiveClass
-                          : pageButtonClass
-                      }
-                      type="button"
-                      aria-current={item === currentPage ? "page" : undefined}
-                      onClick={() => goToPage(item)}
-                    >
-                      {item + 1}
-                    </button>
-                  ),
-                )}
-                <button
-                  className={pageButtonClass}
-                  type="button"
-                  disabled={currentPage >= pageCount - 1}
-                  onClick={() => goToPage(currentPage + 1)}
-                >
-                  Sau
-                </button>
-              </div>
-            </nav>
-          ) : null}
+          <OrderPager
+            page={page}
+            pageCount={pageCount}
+            total={totalOrders}
+            pageSize={pageSize}
+            shown={orders.length}
+            onPage={goToPage}
+          />
         </section>
       </main>
 

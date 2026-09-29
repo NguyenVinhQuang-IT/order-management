@@ -7,7 +7,6 @@ import {
   addOrdersAtom,
   getOrderKind,
   MAX_ORDERS_PER_ENTRY,
-  recordKey,
   updateOrderSecondsAtom,
   updateOrdersSecondsAtom,
 } from "../../../orders";
@@ -25,7 +24,6 @@ export default function KiemDonFields() {
     orderType,
     typeLabel,
     scope,
-    typeOrders,
     value,
     pdPreview,
     setFormError,
@@ -54,20 +52,6 @@ export default function KiemDonFields() {
     }
 
     if (scope === "all") {
-      const overrideKeys = typeOrders
-        .filter(
-          (order) =>
-            typeof order.seconds === "number" && Number.isFinite(order.seconds),
-        )
-        .map((order) => recordKey(order));
-      if (overrideKeys.length) {
-        const cleared = await saveOrdersSeconds(overrideKeys, null);
-        if (cleared.error) {
-          setFormError(cleared.error);
-          notify(cleared.error, "error");
-          return;
-        }
-      }
       const result = await saveTypeSeconds(orderType, value);
       if (result.error) {
         setFormError(result.error);

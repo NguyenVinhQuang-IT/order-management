@@ -4,7 +4,6 @@ import { useSecondsEditForm, useSecondsSubmit } from "../context";
 import { SCOPES } from "../styles";
 import {
   getOrderKind,
-  recordKey,
   updateOrderSecondsAtom,
   updateOrdersSecondsAtom,
 } from "../../../orders";
@@ -21,7 +20,6 @@ export default function LuuBtwFields() {
     typeLabel,
     scope,
     selectedKeys,
-    typeOrders,
     value,
     setFormError,
     notify,
@@ -45,20 +43,6 @@ export default function LuuBtwFields() {
     }
 
     if (scope === "all") {
-      const overrideKeys = typeOrders
-        .filter(
-          (order) =>
-            typeof order.seconds === "number" && Number.isFinite(order.seconds),
-        )
-        .map((order) => recordKey(order));
-      if (overrideKeys.length) {
-        const cleared = await saveOrdersSeconds(overrideKeys, null);
-        if (cleared.error) {
-          setFormError(cleared.error);
-          notify(cleared.error, "error");
-          return;
-        }
-      }
       const result = await saveTypeSeconds(orderType, value);
       if (result.error) {
         setFormError(result.error);

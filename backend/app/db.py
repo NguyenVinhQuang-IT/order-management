@@ -1,5 +1,7 @@
 import json
+import re
 import sqlite3
+import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -53,6 +55,20 @@ CREATE INDEX IF NOT EXISTS config_process_id_idx
 SQLITE_BIND_LIMIT = 400
 
 
+def fold_text(value):
+    text = "" if value is None else str(value)
+    text = re.sub(r"[\u200b-\u200d\ufeff]", "", text)
+    text = unicodedata.normalize("NFKC", text)
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    text = text.replace("Đ", "D").replace("đ", "d")
+    return text.strip().lower()
+
+
+def compact_text(value):
+    return re.sub(r"[^a-z0-9]+", "", fold_text(value))
+
+
 def get_db():
     if "db" not in g:
         path = Path(current_app.config["DATABASE"])
@@ -66,6 +82,8 @@ def get_db():
         conn.execute("PRAGMA cache_size = -8000")
         conn.execute("PRAGMA mmap_size = 268435456")
         conn.execute("PRAGMA busy_timeout = 5000")
+        conn.create_function("om_fold", 1, fold_text)
+        conn.create_function("om_compact", 1, compact_text)
         g.db = conn
     return g.db
 

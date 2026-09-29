@@ -255,6 +255,49 @@ def test_bulk_delete_and_clear(client, login):
     assert client.get("/api/orders", headers=headers).get_json()["items"] == []
 
 
+def test_orders_are_paged_at_50(client, login):
+    headers, _user = login()
+    first = [f"P{index:03d}" for index in range(50)]
+    client.post(
+        "/api/orders",
+        json={"codes": first, "type": "lam-don"},
+        headers=headers,
+    )
+    client.post(
+        "/api/orders",
+        json={"codes": ["P050"], "type": "lam-don"},
+        headers=headers,
+    )
+    page1 = client.get("/api/orders", headers=headers)
+    body = page1.get_json()
+    assert page1.status_code == 200
+    assert body["total"] == 51
+    assert body["page"] == 1
+    assert body["page_size"] == 50
+    assert len(body["items"]) == 50
+
+    page2 = client.get("/api/orders?page=2", headers=headers).get_json()
+    assert page2["total"] == 51
+    assert page2["page"] == 2
+    assert len(page2["items"]) == 1
+    assert {item["code"] for item in body["items"]} | {page2["items"][0]["code"]} == set(first + ["P050"])
+
+
+def test_search_reports_missing_codes(client, login):
+    headers, _user = login()
+    client.post(
+        "/api/orders",
+        json={"codes": ["ALPHA", "BETA"], "type": "lam-don", "note": "gấp"},
+        headers=headers,
+    )
+    found = client.get("/api/orders", query_string={"q": "ALPHA\nZZZ999"}, headers=headers)
+    body = found.get_json()
+    assert [item["code"] for item in body["items"]] == ["ALPHA"]
+    assert body["unmatched"] == ["zzz999"]
+    folded = client.get("/api/orders", query_string={"q": "gap"}, headers=headers)
+    assert {item["code"] for item in folded.get_json()["items"]} == {"ALPHA", "BETA"}
+
+
 def test_search_filters_in_sql(client, login):
     headers, _ = login()
     client.post(

@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
@@ -7,13 +8,24 @@ from .auth import hash_password, verify_password
 from .constants import (
     MAX_ORDERS_PER_ENTRY,
     MAX_SECONDS,
+    ORDER_PAGE_SIZE,
     PD_PREFIX,
     PD_PROCESS_SLUGS,
     PROCESS_BY_ID,
     PROCESS_BY_NAME,
     ROLES,
 )
-from .db import batched, dump_data, get_db, parse_data, placeholders, row_dict, transaction
+from .db import (
+    batched,
+    compact_text,
+    dump_data,
+    fold_text,
+    get_db,
+    parse_data,
+    placeholders,
+    row_dict,
+    transaction,
+)
 
 ORDER_SELECT = """
     SELECT o.id, o.co, o.emp_id, o.process_id, o.note, o.created_at,
@@ -87,6 +99,76 @@ def _next_day(value):
         return (datetime(year, month, day) + timedelta(days=1)).date().isoformat()
     except (TypeError, ValueError):
         return None
+
+
+def _local_day(stamp, offset_minutes):
+    text = str(stamp or "").strip()
+    if not text:
+        return ""
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text[:10]
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    local = moment - timedelta(minutes=offset_minutes or 0)
+    return local.date().isoformat()
+
+
+def _strip_search_quotes(raw):
+    return re.sub(r"""^[\s"'“”‘’`]+|[\s"'“”‘’`]+$""", "", str(raw or ""))
+
+
+def parse_search_needles(raw):
+    tokens = []
+    seen = set()
+    for chunk in re.split(r"[\r\n,;]+", str(raw or "")):
+        text = _strip_search_quotes(chunk).strip()
+        if not text:
+            continue
+        words = text.split()
+        as_codes = len(words) > 1 and all(
+            re.search(r"\d", word) and len(re.sub(r"[^a-z0-9]", "", word, flags=re.I)) >= 3
+            for word in words
+        )
+        pieces = words if as_codes else [text]
+        for piece in pieces:
+            needle = fold_text(_strip_search_quotes(piece))
+            if not needle or needle in seen:
+                continue
+            seen.add(needle)
+            tokens.append(needle)
+    return tokens
+
+
+def _needle_clause(needle, db):
+    parts = [
+        "instr(om_fold(o.co), ?) > 0",
+        "instr(om_fold(ifnull(o.note, '')), ?) > 0",
+        "instr(om_fold(ifnull(e.name, '')), ?) > 0",
+        "instr(om_fold(ifnull(p.name, '')), ?) > 0",
+        "instr(om_fold(CAST(o.emp_id AS TEXT)), ?) > 0",
+    ]
+    params = [needle] * 5
+    compact = compact_text(needle)
+    if len(compact) >= 3:
+        parts.append("instr(om_compact(o.co), ?) > 0")
+        params.append(compact)
+    slug_ids = [
+        item["id"]
+        for item in process_catalog(db)["items"]
+        if item.get("slug") and needle in fold_text(item["slug"])
+    ]
+    if slug_ids:
+        parts.append(f"o.process_id IN ({placeholders(len(slug_ids))})")
+        params.extend(slug_ids)
+    if needle in ("pd", "ma pd") or "ma pd" in needle:
+        parts.append("o.co LIKE ?")
+        params.append(f"{PD_PREFIX}%")
+    if needle in ("co", "ma co") or "ma co" in needle:
+        parts.append("o.co NOT LIKE ?")
+        params.append(f"{PD_PREFIX}%")
+    return "(" + " OR ".join(parts) + ")", params
 
 
 def invalidate_catalog():
@@ -388,10 +470,10 @@ def get_orders_by_ids(ids, user=None, db=None):
     return items
 
 
-def list_orders(user, filters=None):
+def _order_where(user, filters, needles):
     filters = filters or {}
     db = get_db()
-    sql = [ORDER_SELECT, "WHERE 1 = 1"]
+    sql = ["FROM oders o", "LEFT JOIN emp e ON e.id = o.emp_id", "LEFT JOIN process p ON p.id = o.process_id", "WHERE 1 = 1"]
     params = []
     if user["role"] != "manager":
         sql.append("AND o.emp_id = ?")
@@ -423,41 +505,86 @@ def list_orders(user, filters=None):
         sql.append("AND o.created_at >= ?")
         params.append(date_from)
     if date_to:
-        next_day = _next_day(date_to)
-        if next_day:
+        if "T" in date_to:
             sql.append("AND o.created_at < ?")
-            params.append(next_day)
+            params.append(date_to)
+        else:
+            next_day = _next_day(date_to)
+            if next_day:
+                sql.append("AND o.created_at < ?")
+                params.append(next_day)
 
-    query = str(filters.get("q") or filters.get("query") or "").strip().lower()
-    if query:
-        clauses = [
-            "instr(lower(o.co), ?) > 0",
-            "instr(lower(ifnull(o.note, '')), ?) > 0",
-            "instr(lower(ifnull(e.name, '')), ?) > 0",
-            "instr(lower(ifnull(p.name, '')), ?) > 0",
-            "instr(lower(CAST(o.emp_id AS TEXT)), ?) > 0",
-        ]
-        qparams = [query] * 5
-        slug_ids = [
-            item["id"]
-            for item in process_catalog(db)["items"]
-            if item.get("slug") and query in item["slug"].lower()
-        ]
-        if slug_ids:
-            clauses.append(f"o.process_id IN ({placeholders(len(slug_ids))})")
-            qparams.extend(slug_ids)
-        if query in ("pd", "ma pd") or "ma pd" in query:
-            clauses.append("o.co LIKE ?")
-            qparams.append(f"{PD_PREFIX}%")
-        if query in ("co", "ma co") or "ma co" in query:
-            clauses.append("o.co NOT LIKE ?")
-            qparams.append(f"{PD_PREFIX}%")
-        sql.append("AND (" + " OR ".join(clauses) + ")")
-        params.extend(qparams)
+    if needles:
+        groups = []
+        for needle in needles:
+            clause, needle_params = _needle_clause(needle, db)
+            groups.append(clause)
+            params.extend(needle_params)
+        sql.append("AND (" + " OR ".join(groups) + ")")
+    return sql, params
 
-    sql.append("ORDER BY o.created_at DESC, o.id DESC")
-    rows = db.execute(" ".join(sql), params).fetchall()
-    return _serialize_rows(rows, process_catalog(db)["cfg"])
+
+def _count_orders(user, filters, needles):
+    where, params = _order_where(user, filters, needles)
+    row = get_db().execute("SELECT COUNT(*) AS n " + " ".join(where), params).fetchone()
+    return int(row["n"] if row else 0)
+
+
+def _unmatched_needles(user, filters, needles):
+    if len(needles) < 2:
+        return []
+    scope = {
+        key: value
+        for key, value in (filters or {}).items()
+        if key not in ("q", "query", "type", "kind", "from", "to", "process_id", "emp_id")
+    }
+    missing = []
+    for needle in needles:
+        if not re.search(r"\d", needle):
+            continue
+        if _count_orders(user, scope, [needle]) == 0:
+            missing.append(needle)
+    return missing
+
+
+def _fetch_orders(user, filters, needles, limit=None, offset=0):
+    where, params = _order_where(user, filters, needles)
+    sql = [
+        "SELECT o.id, o.co, o.emp_id, o.process_id, o.note, o.created_at,",
+        "e.name AS emp_name, p.name AS process_name",
+        *where,
+        "ORDER BY o.created_at DESC, o.id DESC",
+    ]
+    if limit is not None:
+        sql.append("LIMIT ? OFFSET ?")
+        params = [*params, limit, offset]
+    rows = get_db().execute(" ".join(sql), params).fetchall()
+    return _serialize_rows(rows, process_catalog()["cfg"])
+
+
+def list_orders(user, filters=None):
+    filters = filters or {}
+    needles = parse_search_needles(filters.get("q") or filters.get("query") or "")
+    return _fetch_orders(user, filters, needles)
+
+
+def list_orders_page(user, filters=None, page=1, page_size=ORDER_PAGE_SIZE):
+    filters = filters or {}
+    needles = parse_search_needles(filters.get("q") or filters.get("query") or "")
+    total = _count_orders(user, filters, needles)
+    size = ORDER_PAGE_SIZE if page_size is None else max(1, min(int(page_size), ORDER_PAGE_SIZE))
+    page_count = max(1, (total + size - 1) // size) if total else 1
+    current = page if isinstance(page, int) and page > 0 else 1
+    if current > page_count:
+        current = page_count
+    items = _fetch_orders(user, filters, needles, size, (current - 1) * size)
+    return {
+        "items": items,
+        "total": total,
+        "page": current,
+        "page_size": size,
+        "unmatched": _unmatched_needles(user, filters, needles),
+    }
 
 
 def get_order(order_id, user=None):
@@ -787,7 +914,7 @@ def _resolve_process(type_id):
     return find_process(slug=text)
 
 
-def save_type_seconds(type_id, raw_seconds):
+def save_type_seconds(type_id, raw_seconds, clear_order_seconds=False):
     process = _resolve_process(type_id)
     if not process:
         return None, "Không tìm thấy công đoạn."
@@ -796,6 +923,8 @@ def save_type_seconds(type_id, raw_seconds):
         return None, error
     with transaction() as db:
         _row, cfg = get_process_config(process["id"], db)
+        if clear_order_seconds:
+            cfg["order_seconds"] = {}
         if value is None:
             cfg.pop("seconds", None)
         else:
@@ -1019,12 +1148,17 @@ def upsert_config(payload):
     return {"id": row["id"], "process_id": row["process_id"], "data": parse_data(row["data"])}, ""
 
 
-def summarize_orders(orders, range_from=None, range_to=None):
+def summarize_orders(orders, range_from=None, range_to=None, tz_offset=0):
     unique_co = set()
     unique_pd = set()
     type_counts = defaultdict(int)
+    type_seconds = defaultdict(int)
+    type_seconds_seen = defaultdict(bool)
     employee_stats = {}
     day_counts = defaultdict(lambda: defaultdict(int))
+    seconds_total = 0
+    seconds_seen = False
+    offset = parse_int(tz_offset, 0) or 0
 
     for order in orders:
         code = order.get("code")
@@ -1035,6 +1169,12 @@ def summarize_orders(orders, range_from=None, range_to=None):
         else:
             unique_co.add(code)
         type_counts[slug] += 1
+        seconds = order.get("seconds")
+        if isinstance(seconds, int):
+            seconds_seen = True
+            seconds_total += seconds
+            type_seconds[slug] += seconds
+            type_seconds_seen[slug] = True
         emp_id = order.get("employee_id") or "—"
         bucket = employee_stats.get(emp_id)
         if bucket is None:
@@ -1042,6 +1182,8 @@ def summarize_orders(orders, range_from=None, range_to=None):
                 "employee_id": emp_id,
                 "name": order.get("emp_name"),
                 "count": 0,
+                "seconds": 0,
+                "seconds_seen": False,
                 "codes": set(),
                 "co_codes": set(),
                 "pd_codes": set(),
@@ -1049,6 +1191,9 @@ def summarize_orders(orders, range_from=None, range_to=None):
             }
             employee_stats[emp_id] = bucket
         bucket["count"] += 1
+        if isinstance(seconds, int):
+            bucket["seconds"] += seconds
+            bucket["seconds_seen"] = True
         bucket["codes"].add(code)
         if is_pd:
             bucket["pd_codes"].add(code)
@@ -1057,7 +1202,7 @@ def summarize_orders(orders, range_from=None, range_to=None):
         bucket["by_type"][slug] += 1
         stamp = order.get("created_at")
         if stamp:
-            day_counts[str(stamp)[:10]][slug] += 1
+            day_counts[_local_day(stamp, offset)][slug] += 1
 
     processes = list_processes()
     return {
@@ -1065,6 +1210,7 @@ def summarize_orders(orders, range_from=None, range_to=None):
         "unique_codes": len(unique_co),
         "unique_co_codes": len(unique_co),
         "unique_pd_codes": len(unique_pd),
+        "seconds_total": seconds_total if seconds_seen else None,
         "from": range_from,
         "to": range_to,
         "by_type": [
@@ -1073,6 +1219,7 @@ def summarize_orders(orders, range_from=None, range_to=None):
                 "process_id": item["id"],
                 "label": item["name"],
                 "count": type_counts.get(item["slug"], 0),
+                "seconds": type_seconds.get(item["slug"], 0) if type_seconds_seen[item["slug"]] else None,
             }
             for item in processes
         ],
@@ -1081,6 +1228,7 @@ def summarize_orders(orders, range_from=None, range_to=None):
                 "employee_id": bucket["employee_id"],
                 "name": bucket["name"],
                 "count": bucket["count"],
+                "seconds": bucket["seconds"] if bucket["seconds_seen"] else None,
                 "unique_codes": len(bucket["codes"]),
                 "unique_co_codes": len(bucket["co_codes"]),
                 "unique_pd_codes": len(bucket["pd_codes"]),

@@ -3,6 +3,7 @@ import { api, mapOrder } from "./api";
 import { sameEmployeeId, sessionAtom } from "./auth";
 
 export const MAX_ORDERS_PER_ENTRY = 50;
+export const ORDERS_PAGE_SIZE = 50;
 
 export const RECEIVE_ORDER_TYPE_ID = "xep-ban-nhan-don";
 export const PD_ORDER_TYPE_IDS = ["lam-don", "kiem-don"];
@@ -487,6 +488,121 @@ export function summarizeOrders(orders, range = {}) {
   };
 }
 
+function isoStamp(date) {
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+export function localRangeParams(from, to) {
+  const params = {};
+  const start = parseLocalDay(from);
+  const end = parseLocalDay(to);
+  if (start) {
+    params.from = isoStamp(
+      new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0, 0),
+    );
+  }
+  if (end) {
+    params.to = isoStamp(
+      new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1, 0, 0, 0, 0),
+    );
+  }
+  return params;
+}
+
+export function buildOrderListQuery(filters = {}) {
+  const query = {
+    page: (filters.page ?? 0) + 1,
+    ...localRangeParams(filters.from, filters.to),
+  };
+  if (filters.q) query.q = filters.q;
+  if (filters.type) query.type = filters.type;
+  if (filters.kind) query.kind = filters.kind;
+  if (filters.empId) query.emp_id = filters.empId;
+  return query;
+}
+
+export function buildStatsQuery(filters = {}, extra = {}) {
+  return {
+    tz_offset: new Date().getTimezoneOffset(),
+    ...localRangeParams(filters.from, filters.to),
+    ...(filters.q ? { q: filters.q } : {}),
+    ...(filters.type ? { type: filters.type } : {}),
+    ...(filters.kind ? { kind: filters.kind } : {}),
+    ...extra,
+  };
+}
+
+function mapStatType(item) {
+  return {
+    id: item.id,
+    label: item.label,
+    count: item.count || 0,
+    seconds: typeof item.seconds === "number" ? item.seconds : null,
+  };
+}
+
+export function mapServerStats(data) {
+  return {
+    total: data?.total || 0,
+    uniqueCoCodes: data?.unique_co_codes || 0,
+    uniquePdCodes: data?.unique_pd_codes || 0,
+    secondsTotal: typeof data?.seconds_total === "number" ? data.seconds_total : null,
+    byType: (data?.by_type || []).map(mapStatType),
+    byEmployee: (data?.by_employee || []).map((item) => ({
+      employeeId: String(item.employee_id ?? ""),
+      name: item.name || "",
+      count: item.count || 0,
+      seconds: typeof item.seconds === "number" ? item.seconds : null,
+      byType: (item.by_type || []).map(mapStatType),
+    })),
+    byDay: (data?.by_day || []).map((day) => ({
+      id: day.id,
+      count: day.count || 0,
+      byType: (day.by_type || []).map(mapStatType),
+    })),
+  };
+}
+
+export function daySeriesFromStats(byDay, from, to) {
+  const map = new Map();
+  for (const day of byDay || []) {
+    const counts = emptyTypeCounts();
+    for (const type of day.byType || []) {
+      if (type.id in counts) counts[type.id] = type.count || 0;
+    }
+    map.set(day.id, counts);
+  }
+  return buildDaySeries(map, from, to);
+}
+
+export function secondsSummaryFromStats(byType) {
+  const items = (byType || []).map((item) => ({
+    id: item.id,
+    label: item.label,
+    count: item.count || 0,
+    seconds: item.seconds,
+  }));
+  const withSeconds = items.filter((item) => item.seconds != null);
+  return {
+    items,
+    totalCount: items.reduce((sum, item) => sum + item.count, 0),
+    total:
+      withSeconds.length === 0
+        ? null
+        : withSeconds.reduce((sum, item) => sum + item.seconds, 0),
+  };
+}
+
+export const emptyServerStats = {
+  total: 0,
+  uniqueCoCodes: 0,
+  uniquePdCodes: 0,
+  secondsTotal: null,
+  byType: [],
+  byEmployee: [],
+  byDay: [],
+};
+
 export function updateOrder(current, originalCode, originalType, patch) {
   const kind = getOrderKind(patch.kind);
   const index = current.findIndex((order) =>
@@ -587,12 +703,58 @@ export function updateOrdersSeconds(current, keys, seconds) {
 
 export const ordersAtom = atom([]);
 export const ordersLoadingAtom = atom(false);
+export const ordersTotalAtom = atom(0);
+export const ordersPageSizeAtom = atom(ORDERS_PAGE_SIZE);
+export const orderPageAtom = atom(0);
+export const pickerOrdersAtom = atom([]);
+export const appliedListQueryAtom = atom({
+  q: "",
+  type: "",
+  kind: "",
+  from: "",
+  to: "",
+  page: 0,
+  empId: "",
+});
 
-async function refreshOrders(set) {
-  const data = await api("/orders");
-  const items = (data.items || []).map(mapOrder);
-  set(ordersAtom, items);
-  return items;
+let listGeneration = 0;
+
+function listFilters(get, overrides = {}) {
+  const applied = get(appliedListQueryAtom);
+  return {
+    q: overrides.q ?? applied.q,
+    type: overrides.type ?? applied.type,
+    kind: overrides.kind ?? applied.kind,
+    from: overrides.from ?? applied.from,
+    to: overrides.to ?? applied.to,
+    page: overrides.page ?? get(orderPageAtom),
+    empId: overrides.empId ?? applied.empId ?? "",
+  };
+}
+
+async function refreshOrders(get, set, overrides = {}) {
+  const generation = ++listGeneration;
+  const filters = listFilters(get, overrides);
+  set(ordersLoadingAtom, true);
+  try {
+    const data = await api("/orders", { query: buildOrderListQuery(filters) });
+    if (generation !== listGeneration) return get(ordersAtom);
+    const items = (data.items || []).map(mapOrder);
+    const total = Number(data.total ?? items.length);
+    const size = Number(data.page_size || ORDERS_PAGE_SIZE);
+    const pageCount = Math.max(1, Math.ceil(total / size));
+    const page = Math.min(Math.max(0, (Number(data.page) || 1) - 1), pageCount - 1);
+    set(appliedListQueryAtom, { ...filters, page });
+    set(orderPageAtom, page);
+    set(ordersPageSizeAtom, size);
+    set(ordersTotalAtom, total);
+    set(unmatchedSearchAtom, Array.isArray(data.unmatched) ? data.unmatched : []);
+    set(ordersAtom, items);
+    return items;
+  } finally {
+    if (generation !== listGeneration) return;
+    set(ordersLoadingAtom, false);
+  }
 }
 
 function findOrder(current, code, type, kind) {
@@ -605,27 +767,14 @@ export const searchQueryAtom = atom("");
 export const orderTypeFilterAtom = atom("");
 export const orderKindFilterAtom = atom("");
 
+export const unmatchedSearchAtom = atom([]);
+
 export const accessibleOrdersAtom = atom((get) => {
-  const orders = get(ordersAtom);
-  const session = get(sessionAtom);
-  if (!session) return [];
-  if (session.role === "manager") return orders;
-  return filterOrdersByEmployee(orders, session.employeeId);
+  if (!get(sessionAtom)) return [];
+  return get(ordersAtom);
 });
 
-export const unmatchedSearchAtom = atom((get) =>
-  unmatchedSearchCodes(get(accessibleOrdersAtom), get(searchQueryAtom)),
-);
-
-export const filteredOrdersAtom = atom((get) =>
-  filterOrders(get(accessibleOrdersAtom), {
-    from: get(dateFromAtom),
-    to: get(dateToAtom),
-    query: get(searchQueryAtom),
-    type: get(orderTypeFilterAtom),
-    kind: get(orderKindFilterAtom),
-  }),
-);
+export const filteredOrdersAtom = atom((get) => get(accessibleOrdersAtom));
 
 export const hasActiveFiltersAtom = atom((get) =>
   hasActiveOrderFilters({
@@ -652,7 +801,7 @@ export const addOrdersAtom = atom(
         method: "POST",
         body: { codes, type, note, seconds, kind: getOrderKind(kind) },
       });
-      const orders = await refreshOrders(set);
+      const orders = await refreshOrders(get, set, { page: 0 });
       return {
         orders,
         added: (data.added || []).map(mapOrder),
@@ -669,14 +818,18 @@ export const removeOrderAtom = atom(null, async (get, set, code, type, kind = "c
   const session = get(sessionAtom);
   const current = get(ordersAtom);
   const order = findOrder(current, code, type, kind);
-  if (!ownsOrder(session, order) || !order?.id) return current;
+  if (!order?.id) {
+    return { orders: current, error: "Không tìm thấy đơn hàng." };
+  }
+  if (!ownsOrder(session, order)) {
+    return { orders: current, error: "Không thể xóa đơn của người khác." };
+  }
   try {
     await api(`/orders/${order.id}`, { method: "DELETE" });
-    const next = removeOrder(current, code, type, kind);
-    set(ordersAtom, next);
-    return next;
-  } catch {
-    return current;
+    const orders = await refreshOrders(get, set);
+    return { orders, error: "" };
+  } catch (error) {
+    return { orders: current, error: error.message || "Không thể xóa đơn hàng." };
   }
 });
 
@@ -686,17 +839,18 @@ export const removeOrdersByKeysAtom = atom(null, async (get, set, keys) => {
   const allowed = [...keys]
     .map((key) => current.find((item) => recordKey(item) === key))
     .filter((order) => ownsOrder(session, order) && order?.id);
-  if (!allowed.length) return current;
+  if (!allowed.length) {
+    return { orders: current, error: "Không tìm thấy đơn hàng." };
+  }
   try {
     await api("/orders/delete", {
       method: "POST",
       body: { ids: allowed.map((order) => order.id) },
     });
-    const next = removeOrdersByKeys(current, allowed.map((order) => recordKey(order)));
-    set(ordersAtom, next);
-    return next;
-  } catch {
-    return current;
+    const orders = await refreshOrders(get, set);
+    return { orders, error: "" };
+  } catch (error) {
+    return { orders: current, error: error.message || "Không thể xóa đơn hàng." };
   }
 });
 
@@ -724,7 +878,7 @@ export const updateOrderAtom = atom(
           kind: getOrderKind(patch.kind),
         },
       });
-      const orders = await refreshOrders(set);
+      const orders = await refreshOrders(get, set);
       return { orders, error: "" };
     } catch (error) {
       return { orders: current, error: error.message };
@@ -748,7 +902,7 @@ export const updateOrderSecondsAtom = atom(
         method: "PUT",
         body: { seconds },
       });
-      const orders = await refreshOrders(set);
+      const orders = await refreshOrders(get, set);
       return { orders, error: "" };
     } catch (error) {
       return { orders: current, error: error.message };
@@ -761,9 +915,15 @@ export const updateOrdersSecondsAtom = atom(null, async (get, set, keys, seconds
   if (get(sessionAtom)?.role !== "manager") {
     return { orders: current, error: "Chỉ quản lý mới sửa được số giây." };
   }
-  const ids = [...keys]
-    .map((key) => current.find((item) => recordKey(item) === key)?.id)
-    .filter(Boolean);
+  const pool = [...get(pickerOrdersAtom), ...current];
+  const ids = [];
+  const seen = new Set();
+  for (const key of keys) {
+    const order = pool.find((item) => recordKey(item) === key);
+    if (!order?.id || seen.has(order.id)) continue;
+    seen.add(order.id);
+    ids.push(order.id);
+  }
   if (!ids.length) {
     return { orders: current, error: "Chọn ít nhất một mã đơn." };
   }
@@ -772,7 +932,7 @@ export const updateOrdersSecondsAtom = atom(null, async (get, set, keys, seconds
       method: "PUT",
       body: { ids, seconds },
     });
-    const orders = await refreshOrders(set);
+    const orders = await refreshOrders(get, set);
     return { orders, error: "" };
   } catch (error) {
     return { orders: current, error: error.message };
@@ -785,16 +945,13 @@ export const clearOrdersAtom = atom(null, async (get, set) => {
   if (!session) return current;
   try {
     await api("/orders/clear", { method: "POST" });
-    const next = session.role === "manager"
-      ? []
-      : current.filter((order) => order.employeeId !== session.employeeId);
-    set(ordersAtom, next);
-    return next;
+    const orders = await refreshOrders(get, set, { page: 0 });
+    return orders;
   } catch {
     return current;
   }
 });
 
-export const loadOrdersAtom = atom(null, async (_get, set) => {
-  return refreshOrders(set);
+export const loadOrdersAtom = atom(null, async (get, set, overrides) => {
+  return refreshOrders(get, set, overrides || {});
 });

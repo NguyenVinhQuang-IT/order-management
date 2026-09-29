@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
+import { api, mapOrder } from "../api";
 import { isManagerAtom } from "../auth";
 import {
-  accessibleOrdersAtom,
   allowsPdCodes,
-  filterOrdersByQuery,
+  buildOrderListQuery,
   ORDER_TYPES,
+  ORDERS_PAGE_SIZE,
   parseOrderLines,
+  pickerOrdersAtom,
   recordKey,
 } from "../orders";
 import { SecondsEditFormProvider } from "./seconds-edit/context";
@@ -23,7 +25,11 @@ import { useToast } from "./Toast";
 export default function SecondsEditDialog({ open, onClose, entry = null }) {
   const notify = useToast();
   const isManager = useAtomValue(isManagerAtom);
-  const orders = useAtomValue(accessibleOrdersAtom);
+  const setPickerOrders = useSetAtom(pickerOrdersAtom);
+  const [typeOrders, setTypeOrders] = useState([]);
+  const [pickerTotal, setPickerTotal] = useState(0);
+  const [pickerPage, setPickerPage] = useState(0);
+  const [pickerLoading, setPickerLoading] = useState(false);
   const typeRef = useRef(null);
   const secondsRef = useRef(null);
   const submitRef = useRef(null);
@@ -106,15 +112,55 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
     };
   }, [open, entry]);
 
-  const typeOrders = useMemo(() => {
-    if (!orderType) return [];
-    return orders.filter((order) => order.type === orderType);
-  }, [orders, orderType]);
+  const visibleOrders = typeOrders;
+  const pickerPageCount = Math.max(1, Math.ceil(pickerTotal / ORDERS_PAGE_SIZE));
 
-  const visibleOrders = useMemo(
-    () => filterOrdersByQuery(typeOrders, query),
-    [typeOrders, query],
-  );
+  useEffect(() => {
+    setPickerPage(0);
+  }, [orderType, query]);
+
+  useEffect(() => {
+    if (!open || !isManager || !orderType) {
+      setPickerLoading(false);
+      setTypeOrders([]);
+      setPickerTotal(0);
+      setPickerOrders([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setPickerLoading(true);
+    const timer = window.setTimeout(() => {
+      api("/orders", {
+        query: buildOrderListQuery({
+          type: orderType,
+          q: query,
+          page: pickerPage,
+        }),
+      })
+        .then((data) => {
+          if (cancelled) return;
+          const items = (data.items || []).map(mapOrder);
+          const nextPage = Math.max(0, (Number(data.page) || 1) - 1);
+          setTypeOrders(items);
+          setPickerTotal(Number(data.total || 0));
+          setPickerOrders(items);
+          if (nextPage !== pickerPage) setPickerPage(nextPage);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setTypeOrders([]);
+          setPickerTotal(0);
+          setPickerOrders([]);
+        })
+        .finally(() => {
+          if (!cancelled) setPickerLoading(false);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, isManager, orderType, query, pickerPage, setPickerOrders]);
 
   const pdPreview = useMemo(() => parseOrderLines(pdText), [pdText]);
   const TypePanel = getSecondsTypePanel(orderType);
@@ -203,6 +249,11 @@ export default function SecondsEditDialog({ open, onClose, entry = null }) {
     onClose,
     toggleKey,
     handleSelectVisible,
+    pickerPage,
+    pickerPageCount,
+    pickerTotal,
+    pickerLoading,
+    setPickerPage,
   };
 
   return (

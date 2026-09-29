@@ -1,38 +1,40 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import { Link, useParams } from "react-router-dom";
+import { api, mapOrder } from "../api";
 import {
   employeesAtom,
   getEmployee,
   getEmployeeName,
   getRoleLabel,
-  sameEmployeeId,
 } from "../auth";
 import GlobalNav from "../components/GlobalNav";
 import OrderFilters from "../components/OrderFilters";
+import OrderPager from "../components/OrderPager";
 import {
   ChartCard,
   DonutChart,
   ExpandableDayChart,
 } from "../components/StatsCharts";
 import {
-  dateFromAtom,
-  dateToAtom,
-  filteredOrdersAtom,
+  buildOrderListQuery,
+  buildStatsQuery,
+  daySeriesFromStats,
+  emptyServerStats,
   getOrderTypeLabel,
-  hasActiveFiltersAtom,
+  mapServerStats,
+  ORDERS_PAGE_SIZE,
   recordKey,
-  ordersAtom,
-  summarizeOrders,
+  secondsSummaryFromStats,
 } from "../orders";
 import {
   codeSecondsAtom,
   formatCount,
   formatSeconds,
   getOrderSeconds,
-  sumSecondsByType,
   typeSecondsAtom,
 } from "../settings";
+import { useDebouncedFilters } from "../useOrderList";
 
 const typeTableCols =
   "desk:grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,0.7fr)]";
@@ -74,42 +76,82 @@ export default function EmployeeDetail() {
   const account = getEmployee(employeeId, employees);
   const name = account?.name || getEmployeeName(employeeId, employees);
   const roleLabel = account ? getRoleLabel(account.role) : "—";
-  const orders = useAtomValue(ordersAtom);
-  const visibleOrders = useAtomValue(filteredOrdersAtom);
-  const dateFrom = useAtomValue(dateFromAtom);
-  const dateTo = useAtomValue(dateToAtom);
-  const hasActiveFilters = useAtomValue(hasActiveFiltersAtom);
-  const hasDateRange = Boolean(dateFrom || dateTo);
+  const filters = useDebouncedFilters();
+  const hasDateRange = Boolean(filters.from || filters.to);
   const typeSeconds = useAtomValue(typeSecondsAtom);
   const codeSeconds = useAtomValue(codeSecondsAtom);
-
-  const theirs = useMemo(
-    () =>
-      visibleOrders.filter((order) =>
-        sameEmployeeId(order.employeeId, employeeId),
-      ),
-    [visibleOrders, employeeId],
-  );
-  const allTheirs = useMemo(
-    () => orders.filter((order) => sameEmployeeId(order.employeeId, employeeId)),
-    [orders, employeeId],
-  );
-  const stats = useMemo(
-    () => summarizeOrders(theirs, { from: dateFrom, to: dateTo }),
-    [theirs, dateFrom, dateTo],
-  );
+  const [page, setPage] = useState(0);
+  const [orders, setOrders] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState(emptyServerStats);
+  const [ready, setReady] = useState(false);
   const secondsByType = useMemo(
-    () => sumSecondsByType(theirs, typeSeconds, codeSeconds),
-    [theirs, typeSeconds, codeSeconds],
+    () => secondsSummaryFromStats(stats.byType),
+    [stats.byType],
   );
+  const days = useMemo(
+    () => daySeriesFromStats(stats.byDay, filters.from, filters.to),
+    [stats.byDay, filters.from, filters.to],
+  );
+  const pageCount = Math.max(1, Math.ceil(total / ORDERS_PAGE_SIZE));
+  const known = Boolean(account || total > 0 || orders.length > 0);
+  const emptyMessage = !ready
+    ? "Đang tải."
+    : total === 0 && filters.hasActiveFilters
+      ? "Không có đơn khớp với bộ lọc."
+      : "Nhân viên này chưa có đơn hàng.";
 
-  const known = Boolean(account || allTheirs.length);
-  const emptyMessage =
-    allTheirs.length === 0
-      ? "Nhân viên này chưa có đơn hàng."
-      : hasActiveFilters
-        ? "Không có đơn khớp với bộ lọc."
-        : "Nhân viên này chưa có đơn hàng.";
+  useEffect(() => {
+    setPage(0);
+  }, [employeeId, filters.query, filters.type, filters.kind, filters.from, filters.to]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReady(false);
+    const listFilters = {
+      q: filters.query,
+      type: filters.type,
+      kind: filters.kind,
+      from: filters.from,
+      to: filters.to,
+      page,
+      empId: employeeId,
+    };
+    Promise.all([
+      api("/orders", { query: buildOrderListQuery(listFilters) }),
+      api("/stats", {
+        query: buildStatsQuery(listFilters, { emp_id: employeeId }),
+      }),
+    ])
+      .then(([listed, summary]) => {
+        if (cancelled) return;
+        const nextPage = Math.max(0, (Number(listed.page) || 1) - 1);
+        setOrders((listed.items || []).map(mapOrder));
+        setTotal(Number(listed.total || 0));
+        setStats(mapServerStats(summary));
+        if (nextPage !== page) setPage(nextPage);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setOrders([]);
+        setTotal(0);
+        setStats(emptyServerStats);
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    employeeId,
+    page,
+    filters.query,
+    filters.type,
+    filters.kind,
+    filters.from,
+    filters.to,
+  ]);
 
   useEffect(() => {
     document.title = name !== "—" ? name : `NV ${employeeId}`;
@@ -172,7 +214,7 @@ export default function EmployeeDetail() {
               <ExpandableDayChart
                 className="desk:col-span-2"
                 title={hasDateRange ? "Đơn theo ngày" : "Đơn 14 ngày gần đây"}
-                items={stats.byDay}
+                items={days}
               />
             </section>
 
@@ -241,13 +283,13 @@ export default function EmployeeDetail() {
                 className="m-0 mb-4 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
               >
                 Đơn đã nhập
-                {theirs.length ? (
+                {total ? (
                   <span className="ml-2 font-normal text-ink-muted-48">
-                    {theirs.length}
+                    {total}
                   </span>
                 ) : null}
               </h2>
-              {theirs.length === 0 ? (
+              {orders.length === 0 ? (
                 <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">
                   {emptyMessage}
                 </p>
@@ -262,11 +304,11 @@ export default function EmployeeDetail() {
                     <span>Thời gian</span>
                     <span>Ghi chú</span>
                   </li>
-                  {theirs.map((order, index) => (
+                  {orders.map((order, index) => (
                     <li
                       key={recordKey(order)}
                       className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center desk:gap-4 ${
-                        index < theirs.length - 1 ? "border-b border-hairline" : ""
+                        index < orders.length - 1 ? "border-b border-hairline" : ""
                       }`}
                     >
                       <span className="text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums">
@@ -291,6 +333,14 @@ export default function EmployeeDetail() {
                   ))}
                 </ul>
               )}
+              <OrderPager
+                page={page}
+                pageCount={pageCount}
+                total={total}
+                pageSize={ORDERS_PAGE_SIZE}
+                shown={orders.length}
+                onPage={setPage}
+              />
             </section>
           </>
         ) : null}

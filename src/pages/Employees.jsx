@@ -15,19 +15,33 @@ import {
   primaryButtonClass,
 } from "../components/order-entry/styles";
 import { useToast } from "../components/Toast";
-import { ordersAtom, summarizeOrders } from "../orders";
+import { api } from "../api";
+import { emptyServerStats, mapServerStats } from "../orders";
 
 export default function Employees() {
   const notify = useToast();
   const session = useAtomValue(sessionAtom);
   const employees = useAtomValue(employeesAtom);
-  const orders = useAtomValue(ordersAtom);
   const deleteEmployee = useSetAtom(deleteEmployeeAtom);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const stats = useMemo(() => summarizeOrders(orders), [orders]);
+  const [stats, setStats] = useState(emptyServerStats);
+
+  useEffect(() => {
+    let cancelled = false;
+    api("/stats")
+      .then((data) => {
+        if (!cancelled) setStats(mapServerStats(data));
+      })
+      .catch(() => {
+        if (!cancelled) setStats(emptyServerStats);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [employees]);
   const rows = useMemo(() => {
     return listDirectoryEmployees(employees).map((person) => ({
       ...person,

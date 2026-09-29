@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 
 from .auth import create_token, get_current_user, login_required, manager_required
+from .constants import ORDER_PAGE_SIZE
 from .services import (
     add_orders,
     authenticate,
@@ -19,6 +20,7 @@ from .services import (
     list_config,
     list_employees,
     list_orders,
+    list_orders_page,
     list_processes,
     save_code_seconds,
     save_type_seconds,
@@ -165,8 +167,9 @@ def processes_delete(process_id):
 @bp.get("/orders")
 @login_required
 def orders_index():
-    items = list_orders(get_current_user(), request.args)
-    return jsonify({"items": items})
+    page = request.args.get("page", 1, type=int)
+    result = list_orders_page(get_current_user(), request.args, page, ORDER_PAGE_SIZE)
+    return jsonify(result)
 
 
 @bp.get("/orders/<int:order_id>")
@@ -277,6 +280,7 @@ def settings_type_seconds():
     item, error = save_type_seconds(
         body.get("type") or body.get("slug") or body.get("process_id"),
         body.get("seconds"),
+        clear_order_seconds=body.get("clear_order_seconds") is True,
     )
     if error:
         return fail(error)
@@ -313,7 +317,8 @@ def stats_index():
         "q": request.args.get("q"),
     }
     orders = list_orders(user, filters)
-    return jsonify(summarize_orders(orders, filters.get("from"), filters.get("to")))
+    offset = request.args.get("tz_offset", 0, type=int)
+    return jsonify(summarize_orders(orders, filters.get("from"), filters.get("to"), offset))
 
 
 @bp.get("/lookup/process")
