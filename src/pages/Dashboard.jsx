@@ -26,7 +26,6 @@ import {
   getOrderSeconds,
   typeSecondsAtom,
 } from "../settings";
-
 const primaryButtonClass =
   "h-11 cursor-pointer rounded-full border-0 bg-primary px-[22px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-white hover:bg-primary-focus focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-primary-focus active:scale-95 disabled:cursor-default disabled:opacity-[0.64]";
 
@@ -327,9 +326,8 @@ export default function Dashboard() {
   }
 
   function cellClass(key, columnId, extra) {
-    return `${extra} -mx-1 rounded-md px-1 ${
-      isCellSelected(key, columnId) ? "bg-[#e8f1fb] text-ink" : ""
-    }`;
+    return `${extra} -mx-1 rounded-md px-1 ${isCellSelected(key, columnId) ? "bg-[#e8f1fb] text-ink" : ""
+      }`;
   }
 
   return (
@@ -415,11 +413,10 @@ export default function Dashboard() {
                 {COPY_COLUMNS.map((column) => (
                   <button
                     key={column.id}
-                    className={`${headerCopyClass} ${
-                      selectedColumn === column.id && selectedKeys.size
-                        ? "text-primary"
-                        : ""
-                    }`}
+                    className={`${headerCopyClass} ${selectedColumn === column.id && selectedKeys.size
+                      ? "text-primary"
+                      : ""
+                      }`}
                     type="button"
                     title={`Chọn cột ${column.label}`}
                     aria-pressed={selectedColumn === column.id && selectedKeys.size > 0}
