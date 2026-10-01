@@ -7,6 +7,7 @@ import {
   sameEmployeeId,
   sessionAtom,
 } from "../auth";
+import DialogOverlay from "../components/DialogOverlay";
 import EmployeeDirectory from "../components/EmployeeDirectory";
 import EmployeeFormDialog from "../components/EmployeeFormDialog";
 import GlobalNav from "../components/GlobalNav";
@@ -147,9 +148,10 @@ export default function Employees() {
       />
 
       {pendingDelete ? (
-        <div
-          className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 tablet:items-center tablet:p-6"
-          onClick={() => !deleting && setPendingDelete(null)}
+        <DialogOverlay
+          onClose={() => {
+            if (!deleting) setPendingDelete(null);
+          }}
         >
           <div
             className="w-full rounded-t-[18px] border border-hairline bg-canvas p-6 shadow-product tablet:max-w-[440px] tablet:rounded-[18px] tablet:p-8"
@@ -194,7 +196,7 @@ export default function Employees() {
               )}
             </div>
           </div>
-        </div>
+        </DialogOverlay>
       ) : null}
     </div>
   );

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { employeePath } from "../auth";
 import { formatCount } from "../settings";
+import DialogOverlay from "./DialogOverlay";
 import { ghostButtonClass } from "./order-entry/styles";
 
 const textButtonClass =
@@ -521,10 +522,7 @@ export function ExpandableDayChart({ title, items, className = "" }) {
         <DayBarChart items={items} />
       </ChartCard>
       {open ? (
-        <div
-          className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 tablet:items-center tablet:p-6"
-          onClick={() => setOpen(false)}
-        >
+        <DialogOverlay onClose={() => setOpen(false)}>
           <div
             className="max-h-[94vh] w-full overflow-y-auto rounded-t-[18px] border border-hairline bg-canvas p-6 shadow-product tablet:max-w-[1200px] tablet:rounded-[18px] tablet:p-8"
             role="dialog"
@@ -549,7 +547,7 @@ export function ExpandableDayChart({ title, items, className = "" }) {
             </div>
             <DayBarChart items={items} size="expanded" />
           </div>
-        </div>
+        </DialogOverlay>
       ) : null}
     </>
   );

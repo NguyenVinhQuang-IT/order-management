@@ -7,6 +7,7 @@ import {
   getOrderSeconds,
   typeSecondsAtom,
 } from "../settings";
+import DialogOverlay from "./DialogOverlay";
 import { OrderEntryFormProvider } from "./order-entry/context";
 import { getOrderEntryTypePanel } from "./order-entry/registry";
 import {
@@ -119,10 +120,7 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 tablet:items-center tablet:p-6"
-      onClick={onClose}
-    >
+    <DialogOverlay onClose={onClose}>
       <div
         className="max-h-[92vh] w-full overflow-y-auto rounded-t-[18px] border border-hairline bg-canvas p-6 shadow-product tablet:max-w-[560px] tablet:rounded-[18px] tablet:p-8"
         role="dialog"
@@ -192,6 +190,6 @@ export default function OrderEntryDialog({ open, onClose, order = null }) {
           </div>
         </form>
       </div>
-    </div>
+    </DialogOverlay>
   );
 }

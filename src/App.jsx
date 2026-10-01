@@ -88,49 +88,49 @@ export default function App() {
     <>
       <Suspense fallback={<PageFallback />}>
         <SessionBootstrap>
-        <Routes>
-          <Route
-            path="/login"
-            element={
-              <GuestRoute>
-                <Login />
-              </GuestRoute>
-            }
-          />
-          <Route
-            path="/"
-            element={
-              <PrivateRoute>
-                <Dashboard />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/thong-ke"
-            element={
-              <ManagerRoute>
-                <Stats />
-              </ManagerRoute>
-            }
-          />
-          <Route
-            path="/nhan-vien"
-            element={
-              <ManagerRoute>
-                <Employees />
-              </ManagerRoute>
-            }
-          />
-          <Route
-            path="/nhan-vien/:employeeId"
-            element={
-              <ManagerRoute>
-                <EmployeeDetail />
-              </ManagerRoute>
-            }
-          />
-          <Route path="*" element={<HomeRedirect />} />
-        </Routes>
+          <Routes>
+            <Route
+              path="/login"
+              element={
+                <GuestRoute>
+                  <Login />
+                </GuestRoute>
+              }
+            />
+            <Route
+              path="/"
+              element={
+                <PrivateRoute>
+                  <Dashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/thong-ke"
+              element={
+                <ManagerRoute>
+                  <Stats />
+                </ManagerRoute>
+              }
+            />
+            <Route
+              path="/nhan-vien"
+              element={
+                <ManagerRoute>
+                  <Employees />
+                </ManagerRoute>
+              }
+            />
+            <Route
+              path="/nhan-vien/:employeeId"
+              element={
+                <ManagerRoute>
+                  <EmployeeDetail />
+                </ManagerRoute>
+              }
+            />
+            <Route path="*" element={<HomeRedirect />} />
+          </Routes>
         </SessionBootstrap>
       </Suspense>
       <Toast />

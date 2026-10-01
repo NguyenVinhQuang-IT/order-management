@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { createEmployeeAtom, ROLES, updateEmployeeAtom } from "../auth";
+import DialogOverlay from "./DialogOverlay";
 import {
   ghostButtonClass,
   primaryButtonClass,
@@ -163,10 +164,7 @@ export default function EmployeeFormDialog({ open, employee = null, onClose }) {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-0 tablet:items-center tablet:p-6"
-      onClick={onClose}
-    >
+    <DialogOverlay onClose={onClose}>
       <div
         className="max-h-[92vh] w-full overflow-y-auto rounded-t-[18px] border border-hairline bg-canvas p-6 shadow-product tablet:max-w-[560px] tablet:rounded-[18px] tablet:p-8"
         role="dialog"
@@ -369,6 +367,6 @@ export default function EmployeeFormDialog({ open, employee = null, onClose }) {
           </div>
         </form>
       </div>
-    </div>
+    </DialogOverlay>
   );
 }
