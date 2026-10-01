@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --host",
     "backend": "python backend/run.py",
+    "backend:dev": "python backend/run.py --debug",
+    "start": "python backend/run.py",
     "build": "vite build",
     "preview": "vite preview"
   },

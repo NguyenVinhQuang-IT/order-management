@@ -9,28 +9,31 @@ REST API cho ứng dụng quản lý đơn, dùng SQLite với đúng các bản
 
 Bảng hệ thống `sqlite_master` / `sqlite_sequence` không dùng trong API.
 
-## Chạy server
+## Chạy server (production)
 
-Chạy backend rồi frontend (Vite proxy `/api` sang cổng 5000):
+`python backend/run.py` dùng Waitress (WSGI production), `debug` tắt. Không còn Werkzeug development server.
+
+Build frontend rồi chạy API + giao diện trên cổng 5000:
+
+```powershell
+npm run build
+python backend/run.py
+```
+
+Mở `http://127.0.0.1:5000`. API: `http://127.0.0.1:5000/api/health`.
+
+Từ `backend/`: `python .\run.py` hoặc double-click `backend/start.bat`.
+
+Lần đầu sẽ tự tạo `.venv` và cài Flask + Waitress nếu chưa có.
+
+Chạy Vite (hot reload) khi sửa giao diện:
 
 ```powershell
 python backend/run.py
 npm run dev
 ```
 
-Mở `http://localhost:5173`. Đăng nhập bằng tài khoản seed, đơn hàng/nhân viên/cài đặt giây đi qua API.
-
-Từ thư mục gốc project hoặc `backend/`:
-
-```powershell
-python backend/run.py
-```
-
-hoặc double-click `backend/start.bat`.
-
-Lần đầu sẽ tự tạo `.venv` và cài Flask nếu chưa có. API: `http://127.0.0.1:5000/api`
-
-Vite (frontend) đã proxy `/api` tới cổng 5000.
+Mở `http://localhost:5173` (proxy `/api` sang cổng 5000). Development server: `python backend/run.py --debug`.
 
 ## Tài khoản mặc định
 
@@ -95,8 +98,10 @@ Cột `config.data` (JSON) lưu:
 
 ## Biến môi trường
 
-- `SECRET_KEY` — ký token (đổi khi chạy thật)
+- `SECRET_KEY` — ký token (mặc định lưu tại `backend/data/secret_key`)
 - `DATABASE` — đường dẫn file SQLite (mặc định `backend/data/order-management.db`)
+- `HOST` / `PORT` — địa chỉ Waitress (mặc định `127.0.0.1:5000`)
+- `CORS_ORIGINS` — thêm origin, cách nhau bởi dấu phẩy
 
 ## Test
 
