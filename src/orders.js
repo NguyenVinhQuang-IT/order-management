@@ -2,7 +2,7 @@ import { atom } from "jotai";
 import { api, mapOrder } from "./api";
 import { sameEmployeeId, sessionAtom } from "./auth";
 
-export const MAX_ORDERS_PER_ENTRY = 50;
+export const MAX_ORDERS_PER_ENTRY = 200;
 export const ORDERS_PAGE_SIZE = 50;
 
 export const RECEIVE_ORDER_TYPE_ID = "xep-ban-nhan-don";

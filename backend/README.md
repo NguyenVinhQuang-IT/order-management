@@ -64,7 +64,7 @@ Gửi token ở header: `Authorization: Bearer <token>`
 | PUT/DELETE | `/api/employees/<id>` | Sửa / xóa NV |
 | GET/POST | `/api/processes` | Công đoạn |
 | PUT/DELETE | `/api/processes/<id>` | Sửa / xóa công đoạn |
-| GET/POST | `/api/orders` | Liệt kê / nhập đơn (tối đa 50 mã/lần) |
+| GET/POST | `/api/orders` | Liệt kê / nhập đơn (tối đa 200 mã/lần) |
 | PUT/DELETE | `/api/orders/<id>` | Sửa / xóa đơn |
 | POST | `/api/orders/delete` | Xóa hàng loạt `{ "ids": [] }` |
 | POST | `/api/orders/clear` | Xóa đơn của mình (manager: tất cả) |
