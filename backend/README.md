@@ -73,7 +73,7 @@ Gửi token ở header: `Authorization: Bearer <token>`
 | PUT | `/api/settings/type-seconds` | `{ "type": "lam-don", "seconds": 120 }` |
 | PUT | `/api/settings/code-seconds` | `{ "type": "lam-don", "codes": ["PD1"], "seconds": 90 }` |
 | GET/POST | `/api/config` | CRUD JSON `config` |
-| GET | `/api/stats` | Thống kê (manager) |
+| GET | `/api/stats` | Thống kê (nhân viên: đơn của mình; quản lý: tất cả) |
 
 ### Nhập đơn
 

@@ -108,9 +108,9 @@ export default function App() {
             <Route
               path="/thong-ke"
               element={
-                <ManagerRoute>
+                <PrivateRoute>
                   <Stats />
-                </ManagerRoute>
+                </PrivateRoute>
               }
             />
             <Route

@@ -5,6 +5,7 @@ import {
   employeesAtom,
   getEmployee,
   getEmployeeName,
+  isManagerAtom,
   listDirectoryEmployees,
   sameEmployeeId,
 } from "../auth";
@@ -43,6 +44,7 @@ function MetricCard({ label, value }) {
 const typeTableCols = "desk:grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,0.7fr)]";
 
 export default function Stats() {
+  const isManager = useAtomValue(isManagerAtom);
   const employees = useAtomValue(employeesAtom);
   const filters = useDebouncedFilters();
   const hasDateRange = Boolean(filters.from || filters.to);
@@ -123,7 +125,9 @@ export default function Stats() {
           Thống kê.
         </h1>
         <p className="mt-4 max-w-[28ch] font-sans text-[21px] font-normal leading-[1.19] tracking-[0.196px] text-ink-muted-80 desk:text-[28px] desk:leading-[1.14]">
-          Tổng quan đơn hàng đã nhập.
+          {isManager
+            ? "Tổng quan đơn hàng đã nhập."
+            : "Đơn hàng của bạn đã nhập."}
         </p>
 
         <div className="mt-8">
@@ -155,9 +159,11 @@ export default function Stats() {
             title={hasDateRange ? "Đơn theo ngày" : "Đơn 14 ngày gần đây"}
             items={days}
           />
-          <ChartCard className="desk:col-span-3" title="Theo nhân viên">
-            <EmployeeBarChart items={employeeRows} empty={emptyMessage} />
-          </ChartCard>
+          {isManager ? (
+            <ChartCard className="desk:col-span-3" title="Theo nhân viên">
+              <EmployeeBarChart items={employeeRows} empty={emptyMessage} />
+            </ChartCard>
+          ) : null}
         </section>
 
         <section className="mt-12" aria-labelledby="stats-by-type">
@@ -219,23 +225,25 @@ export default function Stats() {
           )}
         </section>
 
-        <section className="mt-12" aria-labelledby="stats-by-employee">
-          <h2
-            id="stats-by-employee"
-            className="m-0 mb-4 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
-          >
-            Nhân viên
-            {directoryRows.length ? (
-              <span className="ml-2 font-normal text-ink-muted-48">
-                {directoryRows.length}
-              </span>
-            ) : null}
-          </h2>
-          <EmployeeDirectory
-            rows={directoryRows}
-            empty="Chưa có nhân viên."
-          />
-        </section>
+        {isManager ? (
+          <section className="mt-12" aria-labelledby="stats-by-employee">
+            <h2
+              id="stats-by-employee"
+              className="m-0 mb-4 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
+            >
+              Nhân viên
+              {directoryRows.length ? (
+                <span className="ml-2 font-normal text-ink-muted-48">
+                  {directoryRows.length}
+                </span>
+              ) : null}
+            </h2>
+            <EmployeeDirectory
+              rows={directoryRows}
+              empty="Chưa có nhân viên."
+            />
+          </section>
+        ) : null}
       </main>
     </div>
   );

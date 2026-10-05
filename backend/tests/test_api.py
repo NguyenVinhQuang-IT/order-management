@@ -139,7 +139,35 @@ def test_employee_cannot_see_other_orders(client, login):
     assert listed.get_json()["items"] == []
 
 
+def test_employee_stats_own_orders_only(client, login):
+    quang, _ = login("1", "123456", "employee")
+    client.post(
+        "/api/orders",
+        json={"codes": ["A1"], "type": "lam-don"},
+        headers=quang,
+    )
+    lan, _ = login("2", "123456", "employee")
+    client.post(
+        "/api/orders",
+        json={"codes": ["B1"], "type": "kiem-don"},
+        headers=lan,
+    )
+
+    own = client.get("/api/stats", headers=quang)
+    assert own.status_code == 200
+    data = own.get_json()
+    assert data["total"] == 1
+    assert data["unique_co_codes"] == 1
+    assert {item["employee_id"] for item in data["by_employee"]} == {"1"}
+
+    peeked = client.get("/api/stats?emp_id=2", headers=quang)
+    assert peeked.status_code == 200
+    assert peeked.get_json()["total"] == 1
+    assert {item["employee_id"] for item in peeked.get_json()["by_employee"]} == {"1"}
+
+
 def test_manager_sees_all_and_stats(client, login):
+
     quang, _ = login("1", "123456", "employee")
     client.post(
         "/api/orders",

@@ -80,6 +80,44 @@ function typesWithCounts(items) {
   );
 }
 
+const DONUT_MIN_ARC = 6;
+const BAR_MIN_SEGMENT = 3;
+
+function allocateMinSizes(values, total, minSize) {
+  const result = values.map(() => 0);
+  const positive = values
+    .map((value, index) => ({ index, value: Number(value) || 0 }))
+    .filter((item) => item.value > 0);
+  if (!positive.length || total <= 0) return result;
+
+  const min = Math.min(minSize, total / Math.max(positive.length * 2, 1));
+  let remaining = total;
+  let unlocked = positive;
+  for (let step = 0; step < positive.length; step += 1) {
+    const sum = unlocked.reduce((acc, item) => acc + item.value, 0);
+    const next = [];
+    let lockedAny = false;
+    for (const item of unlocked) {
+      const share = sum > 0 ? (item.value / sum) * remaining : 0;
+      if (share < min) {
+        result[item.index] = min;
+        remaining -= min;
+        lockedAny = true;
+      } else {
+        next.push(item);
+      }
+    }
+    unlocked = next;
+    if (!lockedAny) break;
+    if (remaining <= 0) break;
+  }
+  const sum = unlocked.reduce((acc, item) => acc + item.value, 0);
+  for (const item of unlocked) {
+    result[item.index] = sum > 0 ? (item.value / sum) * remaining : 0;
+  }
+  return result;
+}
+
 export function ChartCard({ title, children, className = "", action = null }) {
   return (
     <article
@@ -105,14 +143,21 @@ export function DonutChart({ items, total }) {
   const circumference = 2 * Math.PI * radius;
 
   const visible = items.filter((item) => item.count > 0);
+  const lengths =
+    total > 0
+      ? allocateMinSizes(
+          visible.map((item) => item.count),
+          circumference,
+          DONUT_MIN_ARC,
+        )
+      : [];
   const arcs = [];
   let offset = 0;
-  items.forEach((item) => {
-    if (total > 0 && item.count > 0) {
-      const length = (item.count / total) * circumference;
-      arcs.push({ id: item.id, length, offset, color: colorForType(item.id) });
-      offset += length;
-    }
+  visible.forEach((item, index) => {
+    const length = lengths[index] || 0;
+    if (length <= 0) return;
+    arcs.push({ id: item.id, length, offset, color: colorForType(item.id) });
+    offset += length;
   });
 
   return (
@@ -310,7 +355,7 @@ export function DayBarChart({ items, size = "default" }) {
             );
           })}
           {dayPoints.map((point) => {
-            const { item, groupX, totalHeight, rawHeight } = point;
+            const { item, groupX, totalHeight } = point;
             const barX = groupX + (groupW - barW) / 2;
             const series = visibleTypes
               .map((type) => ({
@@ -320,11 +365,14 @@ export function DayBarChart({ items, size = "default" }) {
                   (type.id === "all" ? item.count : 0),
               }))
               .filter((type) => type.count > 0);
-            const scale = rawHeight > 0 ? totalHeight / rawHeight : 1;
+            const heights = allocateMinSizes(
+              series.map((type) => type.count),
+              totalHeight,
+              BAR_MIN_SEGMENT,
+            );
             let yCursor = padT + plotH;
-            const segments = series.map((type) => {
-              const segmentHeight =
-                max > 0 ? (type.count / max) * plotH * scale : 0;
+            const segments = series.map((type, index) => {
+              const segmentHeight = heights[index] || 0;
               yCursor -= segmentHeight;
               return { ...type, y: yCursor, height: segmentHeight };
             });
@@ -591,6 +639,7 @@ function EmployeeStageBars({ item, max }) {
                       className="h-2.5 rounded-full"
                       style={{
                         width: `${percent}%`,
+                        minWidth: 8,
                         backgroundColor: colorForType(type.id),
                       }}
                     />

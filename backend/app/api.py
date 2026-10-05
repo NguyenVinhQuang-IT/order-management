@@ -306,8 +306,6 @@ def settings_code_seconds():
 @login_required
 def stats_index():
     user = get_current_user()
-    if user["role"] != "manager":
-        return fail("Chỉ quản lý mới xem được thống kê.", 403)
     filters = {
         "from": request.args.get("from"),
         "to": request.args.get("to"),
@@ -317,6 +315,8 @@ def stats_index():
         "kind": request.args.get("kind"),
         "q": request.args.get("q"),
     }
+    if user["role"] != "manager":
+        filters["emp_id"] = user["id"]
     orders = list_orders(user, filters)
     offset = request.args.get("tz_offset", 0, type=int)
     return jsonify(summarize_orders(orders, filters.get("from"), filters.get("to"), offset))

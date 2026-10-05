@@ -56,15 +56,15 @@ export default function GlobalNav({ trailing }) {
             <Mark />
             <span>Trang chủ</span>
           </Link>
+          {authenticated ? (
+            <NavLink to="/thong-ke" className={navLinkClass}>
+              Thống kê
+            </NavLink>
+          ) : null}
           {isManager ? (
-            <>
-              <NavLink to="/thong-ke" className={navLinkClass}>
-                Thống kê
-              </NavLink>
-              <NavLink to="/nhan-vien" className={navLinkClass}>
-                Nhân viên
-              </NavLink>
-            </>
+            <NavLink to="/nhan-vien" className={navLinkClass}>
+              Nhân viên
+            </NavLink>
           ) : null}
         </div>
         {authenticated || trailing ? (
