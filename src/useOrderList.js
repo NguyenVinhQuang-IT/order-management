@@ -13,6 +13,7 @@ import {
 
 // Survives dashboard unmount so returning with the same filters keeps the page.
 let lastListKey = null;
+const ORDER_REFRESH_MS = 10 * 60 * 1000;
 
 export function useDebouncedFilters() {
   const searchQuery = useAtomValue(searchQueryAtom);
@@ -58,6 +59,28 @@ export function useOrderListLoader() {
     page,
     loadOrders,
     setPage,
+    filters.query,
+    filters.type,
+    filters.kind,
+    filters.from,
+    filters.to,
+  ]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      loadOrders({
+        q: filters.query,
+        type: filters.type,
+        kind: filters.kind,
+        from: filters.from,
+        to: filters.to,
+        page,
+      }).catch(() => {});
+    }, ORDER_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [
+    loadOrders,
+    page,
     filters.query,
     filters.type,
     filters.kind,

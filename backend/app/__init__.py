@@ -63,10 +63,20 @@ def create_app(test_config=None):
     root = Path(__file__).resolve().parent.parent
     dist_dir = root.parent / "dist"
     app.json = UTF8JSONProvider(app)
+    try:
+        capacity_interval = int(os.environ.get("CAPACITY_INTERVAL") or os.environ.get("CAPACITY_TTL", "600"))
+    except ValueError:
+        capacity_interval = 600
     config = {
         "SECRET_KEY": os.environ.get("SECRET_KEY") or "dev-secret-change-me",
         "DATABASE": os.environ.get("DATABASE", str(root / "data" / "order-management.db")),
         "DEBUG": False,
+        "CAPACITY_URL": os.environ.get(
+            "CAPACITY_URL",
+            "http://192.168.101.65:8088/data/xep-ban-capacity.json",
+        ),
+        "CAPACITY_INTERVAL": capacity_interval,
+        "CAPACITY_TTL": capacity_interval,
     }
     if test_config:
         config.update(test_config)
@@ -101,4 +111,7 @@ def create_app(test_config=None):
         init_schema()
         seed_if_empty()
 
+    from .capacity import start_capacity_scheduler
+
+    start_capacity_scheduler(app)
     return app

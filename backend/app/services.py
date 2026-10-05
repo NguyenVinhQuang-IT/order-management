@@ -2,7 +2,7 @@ import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-from flask import g, has_app_context
+from flask import current_app, g, has_app_context
 
 from .auth import hash_password, verify_password
 from .constants import (
@@ -562,13 +562,25 @@ def _fetch_orders(user, filters, needles, limit=None, offset=0):
     return _serialize_rows(rows, process_catalog()["cfg"])
 
 
+def _sync_capacity_orders():
+    from .capacity import ensure_capacity_synced
+
+    if current_app.config.get("CAPACITY_ROWS") is not None:
+        ensure_capacity_synced()
+        return
+    if callable(current_app.config.get("CAPACITY_FETCHER")):
+        ensure_capacity_synced()
+
+
 def list_orders(user, filters=None):
+    _sync_capacity_orders()
     filters = filters or {}
     needles = parse_search_needles(filters.get("q") or filters.get("query") or "")
     return _fetch_orders(user, filters, needles)
 
 
 def list_orders_page(user, filters=None, page=1, page_size=ORDER_PAGE_SIZE):
+    _sync_capacity_orders()
     filters = filters or {}
     needles = parse_search_needles(filters.get("q") or filters.get("query") or "")
     total = _count_orders(user, filters, needles)

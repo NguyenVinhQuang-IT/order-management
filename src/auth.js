@@ -81,6 +81,8 @@ export const signInAtom = atom(
       employeeId: String(data.user.employee_id ?? data.user.id),
       name: data.user.name,
       role: data.user.role,
+      pbb: data.user.pbb || "",
+      pba: data.user.pba || "",
     };
     set(sessionAtom, session);
     return session;
@@ -136,6 +138,8 @@ export const updateEmployeeAtom = atom(null, async (get, set, employeeId, payloa
       ...session,
       name: updated.name,
       role: updated.role,
+      pbb: updated.pbb || "",
+      pba: updated.pba || "",
     });
   }
   return updated;
