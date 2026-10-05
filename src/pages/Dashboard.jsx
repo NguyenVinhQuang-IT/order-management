@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { isManagerAtom } from "../auth";
+import DialogOverlay from "../components/DialogOverlay";
 import GlobalNav from "../components/GlobalNav";
 import OrderEntryDialog from "../components/OrderEntryDialog";
 import OrderFilters from "../components/OrderFilters";
 import OrderPager from "../components/OrderPager";
+import { ghostButtonClass } from "../components/order-entry/styles";
 import SecondsEditDialog from "../components/SecondsEditDialog";
 import { useToast } from "../components/Toast";
 import {
@@ -104,6 +106,8 @@ export default function Dashboard() {
   }, []);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [selectedColumn, setSelectedColumn] = useState("code");
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const draggingRef = useRef(false);
   const anchorIndexRef = useRef(-1);
   const dragColumnRef = useRef("code");
@@ -170,16 +174,8 @@ export default function Dashboard() {
     };
   }, []);
 
-  async function handleRemove(order) {
-    if (editingOrder && recordKey(editingOrder) === recordKey(order)) {
-      setEditingOrder(null);
-    }
-    const result = await removeOrder(order.code, order.type, getOrderKind(order));
-    if (result?.error) {
-      notify(result.error, "error");
-      return;
-    }
-    notify(`Đã xóa ${order.code}.`);
+  function requestRemove(order) {
+    setPendingDelete({ type: "one", order });
   }
 
   function handleClearSelection() {
@@ -187,17 +183,49 @@ export default function Dashboard() {
     notify("Đã bỏ chọn.");
   }
 
-  async function handleRemoveSelected() {
-    const count = selectedKeys.size;
-    if (count === 0) return;
-    const result = await removeOrdersByKeys(selectedKeys);
-    if (result?.error) {
-      notify(result.error, "error");
-      return;
+  function requestRemoveSelected() {
+    if (selectedKeys.size === 0) return;
+    setPendingDelete({ type: "many", count: selectedKeys.size });
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete || deleting) return;
+    setDeleting(true);
+    try {
+      if (pendingDelete.type === "one") {
+        const order = pendingDelete.order;
+        if (editingOrder && recordKey(editingOrder) === recordKey(order)) {
+          setEditingOrder(null);
+        }
+        const result = await removeOrder(
+          order.code,
+          order.type,
+          getOrderKind(order),
+        );
+        if (result?.error) {
+          notify(result.error, "error");
+          return;
+        }
+        notify(`Đã xóa ${order.code}.`);
+      } else {
+        const count = selectedKeys.size;
+        if (count === 0) {
+          setPendingDelete(null);
+          return;
+        }
+        const result = await removeOrdersByKeys(selectedKeys);
+        if (result?.error) {
+          notify(result.error, "error");
+          return;
+        }
+        setSelectedKeys(new Set());
+        setEditingOrder(null);
+        notify(`Đã xóa ${count} đơn hàng.`);
+      }
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
     }
-    setSelectedKeys(new Set());
-    setEditingOrder(null);
-    notify(`Đã xóa ${count} đơn hàng.`);
   }
 
   function columnFromEvent(event) {
@@ -208,7 +236,7 @@ export default function Dashboard() {
   function handleRowPointerDown(event, index, key) {
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, a")) return;
-    if (dialogOpen || secondsOpen) return;
+    if (dialogOpen || secondsOpen || pendingDelete) return;
 
     const column = columnFromEvent(event);
     if (!column) return;
@@ -504,7 +532,7 @@ export default function Dashboard() {
                       <button
                         className={textLinkClass}
                         type="button"
-                        onClick={() => handleRemove(order)}
+                        onClick={() => requestRemove(order)}
                       >
                         Xóa
                       </button>
@@ -536,6 +564,52 @@ export default function Dashboard() {
         <SecondsEditDialog open={secondsOpen} onClose={closeSeconds} />
       ) : null}
 
+      {pendingDelete ? (
+        <DialogOverlay
+          onClose={() => {
+            if (!deleting) setPendingDelete(null);
+          }}
+        >
+          <div
+            className="w-full rounded-t-[18px] border border-hairline bg-canvas p-6 shadow-product tablet:max-w-[440px] tablet:rounded-[18px] tablet:p-8"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-delete-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2
+              id="order-delete-title"
+              className="m-0 font-sans text-[21px] font-semibold leading-[1.19] tracking-[0.231px] text-ink"
+            >
+              Xóa đơn hàng
+            </h2>
+            <p className="mt-4 m-0 text-[17px] font-normal leading-[1.47] tracking-[-0.374px] text-ink-muted-80">
+              {pendingDelete.type === "one"
+                ? `Xóa đơn ${pendingDelete.order.code} (${getOrderTypeLabel(pendingDelete.order.type)})? Thao tác này không hoàn tác được.`
+                : `Xóa ${pendingDelete.count} đơn hàng đã chọn? Thao tác này không hoàn tác được.`}
+            </p>
+            <div className="mt-8 flex justify-end gap-3">
+              <button
+                className={ghostButtonClass}
+                type="button"
+                disabled={deleting}
+                onClick={() => setPendingDelete(null)}
+              >
+                Hủy
+              </button>
+              <button
+                className="h-11 cursor-pointer rounded-full border-0 bg-[#e30000] px-[22px] py-[11px] text-[17px] font-normal leading-none tracking-[-0.374px] text-white hover:bg-[#c40000] active:scale-95 disabled:cursor-default disabled:opacity-[0.64]"
+                type="button"
+                disabled={deleting}
+                onClick={confirmDelete}
+              >
+                {deleting ? "Đang xóa…" : "Xóa"}
+              </button>
+            </div>
+          </div>
+        </DialogOverlay>
+      ) : null}
+
       {selectedKeys.size > 0 ? (
         <div className="fixed bottom-8 left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-ink px-4 py-2 text-white">
           <span className="whitespace-nowrap px-2 text-[15px] font-normal leading-none tracking-[-0.224px]">
@@ -560,7 +634,7 @@ export default function Dashboard() {
           <button
             className="h-9 cursor-pointer rounded-full border-0 bg-[#e30000] px-4 text-sm font-normal leading-none tracking-[-0.224px] text-white hover:bg-[#c40000] active:scale-95"
             type="button"
-            onClick={handleRemoveSelected}
+            onClick={requestRemoveSelected}
           >
             Xóa đã chọn
           </button>

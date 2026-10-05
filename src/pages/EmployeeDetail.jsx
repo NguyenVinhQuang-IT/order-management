@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import { Link, useParams } from "react-router-dom";
 import { api, mapOrder } from "../api";
+import { CopyColumnBar, useColumnCopy } from "../copyColumn";
 import {
   employeesAtom,
   getEmployee,
@@ -36,6 +37,20 @@ import {
 } from "../settings";
 import { useDebouncedFilters } from "../useOrderList";
 
+const TYPE_COPY_COLUMNS = [
+  { id: "type", label: "Công đoạn" },
+  { id: "count", label: "Đơn" },
+  { id: "seconds", label: "Số giây" },
+];
+
+const ORDER_COPY_COLUMNS = [
+  { id: "code", label: "Mã" },
+  { id: "type", label: "Công đoạn" },
+  { id: "seconds", label: "Giây" },
+  { id: "time", label: "Thời gian" },
+  { id: "note", label: "Ghi chú" },
+];
+
 const typeTableCols =
   "desk:grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,0.7fr)]";
 
@@ -54,6 +69,13 @@ function formatEnteredAt(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function typeColumnValue(item, columnId) {
+  if (columnId === "type") return item.label || "";
+  if (columnId === "count") return item.count == null ? "" : String(item.count);
+  if (columnId === "seconds") return item.seconds == null ? "" : String(item.seconds);
+  return "";
 }
 
 function MetricCard({ label, value }) {
@@ -100,6 +122,40 @@ export default function EmployeeDetail() {
     : total === 0 && filters.hasActiveFilters
       ? "Không có đơn khớp với bộ lọc."
       : "Nhân viên này chưa có đơn hàng.";
+  const typeRows = secondsByType.items.filter((item) => item.count > 0);
+  const getTypeKey = useCallback((item) => item.id, []);
+  const getOrderKey = useCallback((order) => recordKey(order), []);
+  const typeCopy = useColumnCopy({
+    tableId: "employee-type",
+    rows: typeRows,
+    getRowKey: getTypeKey,
+    columns: TYPE_COPY_COLUMNS,
+    getValue: typeColumnValue,
+  });
+  const orderColumnValue = useCallback(
+    (order, columnId) => {
+      if (columnId === "code") return order.code || "";
+      if (columnId === "type") return getOrderTypeLabel(order.type);
+      if (columnId === "seconds") {
+        const seconds = getOrderSeconds(order, typeSeconds, codeSeconds);
+        return seconds == null ? "" : String(seconds);
+      }
+      if (columnId === "time") {
+        const text = formatEnteredAt(order.updatedAt || order.createdAt);
+        return text === "—" ? "" : text;
+      }
+      if (columnId === "note") return order.note || "";
+      return "";
+    },
+    [typeSeconds, codeSeconds],
+  );
+  const orderCopy = useColumnCopy({
+    tableId: "employee-orders",
+    rows: orders,
+    getRowKey: getOrderKey,
+    columns: ORDER_COPY_COLUMNS,
+    getValue: orderColumnValue,
+  });
 
   useEffect(() => {
     setPage(0);
@@ -230,34 +286,73 @@ export default function EmployeeDetail() {
                   {emptyMessage}
                 </p>
               ) : (
-                <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0">
+                <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0 select-none">
                   <li
                     className={`hidden border-b border-hairline px-6 py-3 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink-muted-48 desk:grid ${typeTableCols} desk:gap-4`}
                   >
-                    <span>Công đoạn</span>
-                    <span>Đơn</span>
-                    <span>Số giây</span>
+                    {TYPE_COPY_COLUMNS.map((column) => (
+                      <button
+                        key={column.id}
+                        className={typeCopy.headerClass(column.id)}
+                        type="button"
+                        title={`Chọn cột ${column.label}`}
+                        aria-pressed={
+                          typeCopy.selectedColumn === column.id &&
+                          typeCopy.selectedKeys.size > 0
+                        }
+                        onClick={() => typeCopy.handleSelectColumn(column)}
+                      >
+                        {column.label}
+                      </button>
+                    ))}
                   </li>
-                  {secondsByType.items
-                    .filter((item) => item.count > 0)
-                    .map((item) => (
+                  {typeRows.map((item, index) => {
+                    const key = item.id;
+                    return (
                     <li
-                      key={item.id}
-                      className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${typeTableCols} desk:items-center desk:gap-4 border-b border-hairline`}
+                      key={key}
+                      data-copy-table="employee-type"
+                      data-copy-index={index}
+                      onPointerDown={(event) =>
+                        typeCopy.handleRowPointerDown(event, index, key)
+                      }
+                      className={`grid cursor-cell grid-cols-1 gap-y-2 px-6 py-[17px] ${typeTableCols} desk:items-center desk:gap-4 border-b border-hairline`}
                     >
-                      <span className="text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink">
+                      <span
+                        data-column="type"
+                        className={typeCopy.cellClass(
+                          key,
+                          "type",
+                          "text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink",
+                        )}
+                      >
                         {item.label}
                       </span>
-                      <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                      <span
+                        data-column="count"
+                        className={typeCopy.cellClass(
+                          key,
+                          "count",
+                          "text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink",
+                        )}
+                      >
                         <span className="desk:hidden">Đơn </span>
                         {formatCount(item.count)}
                       </span>
-                      <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                      <span
+                        data-column="seconds"
+                        className={typeCopy.cellClass(
+                          key,
+                          "seconds",
+                          "text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink",
+                        )}
+                      >
                         <span className="desk:hidden">Số giây </span>
                         {formatSeconds(item.seconds)}
                       </span>
                     </li>
-                  ))}
+                    );
+                  })}
                   <li
                     className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${typeTableCols} desk:items-center desk:gap-4`}
                   >
@@ -294,43 +389,96 @@ export default function EmployeeDetail() {
                   {emptyMessage}
                 </p>
               ) : (
-                <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0">
+                <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0 select-none">
                   <li
                     className={`hidden border-b border-hairline px-6 py-3 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink-muted-48 desk:grid ${orderListCols} desk:gap-4`}
                   >
-                    <span>Mã</span>
-                    <span>Công đoạn</span>
-                    <span>Giây</span>
-                    <span>Thời gian</span>
-                    <span>Ghi chú</span>
+                    {ORDER_COPY_COLUMNS.map((column) => (
+                      <button
+                        key={column.id}
+                        className={orderCopy.headerClass(column.id)}
+                        type="button"
+                        title={`Chọn cột ${column.label}`}
+                        aria-pressed={
+                          orderCopy.selectedColumn === column.id &&
+                          orderCopy.selectedKeys.size > 0
+                        }
+                        onClick={() => orderCopy.handleSelectColumn(column)}
+                      >
+                        {column.label}
+                      </button>
+                    ))}
                   </li>
-                  {orders.map((order, index) => (
+                  {orders.map((order, index) => {
+                    const key = recordKey(order);
+                    return (
                     <li
-                      key={recordKey(order)}
-                      className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center desk:gap-4 ${
+                      key={key}
+                      data-copy-table="employee-orders"
+                      data-copy-index={index}
+                      onPointerDown={(event) =>
+                        orderCopy.handleRowPointerDown(event, index, key)
+                      }
+                      className={`grid cursor-cell grid-cols-1 gap-y-2 px-6 py-[17px] ${orderListCols} desk:items-center desk:gap-4 ${
                         index < orders.length - 1 ? "border-b border-hairline" : ""
                       }`}
                     >
-                      <span className="text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums">
+                      <span
+                        data-column="code"
+                        className={orderCopy.cellClass(
+                          key,
+                          "code",
+                          "text-[17px] font-normal tracking-[-0.374px] text-ink tabular-nums",
+                        )}
+                      >
                         {order.code}
                       </span>
-                      <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                      <span
+                        data-column="type"
+                        className={orderCopy.cellClass(
+                          key,
+                          "type",
+                          "text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink",
+                        )}
+                      >
                         {getOrderTypeLabel(order.type)}
                       </span>
-                      <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                      <span
+                        data-column="seconds"
+                        className={orderCopy.cellClass(
+                          key,
+                          "seconds",
+                          "text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink",
+                        )}
+                      >
                         <span className="desk:hidden">Giây </span>
                         {formatSeconds(
                           getOrderSeconds(order, typeSeconds, codeSeconds),
                         )}
                       </span>
-                      <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]">
+                      <span
+                        data-column="time"
+                        className={orderCopy.cellClass(
+                          key,
+                          "time",
+                          "text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px]",
+                        )}
+                      >
                         {formatEnteredAt(order.updatedAt || order.createdAt)}
                       </span>
-                      <span className="break-words text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                      <span
+                        data-column="note"
+                        className={orderCopy.cellClass(
+                          key,
+                          "note",
+                          "break-words text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink",
+                        )}
+                      >
                         {order.note || "—"}
                       </span>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
               <OrderPager
@@ -345,6 +493,22 @@ export default function EmployeeDetail() {
           </>
         ) : null}
       </main>
+      {typeCopy.showBar ? (
+        <CopyColumnBar
+          count={typeCopy.selectedKeys.size}
+          label={typeCopy.selectedLabel}
+          onCopy={() => typeCopy.handleCopyColumn()}
+          onClear={typeCopy.handleClearSelection}
+        />
+      ) : null}
+      {orderCopy.showBar ? (
+        <CopyColumnBar
+          count={orderCopy.selectedKeys.size}
+          label={orderCopy.selectedLabel}
+          onCopy={() => orderCopy.handleCopyColumn()}
+          onClear={orderCopy.handleClearSelection}
+        />
+      ) : null}
     </div>
   );
 }

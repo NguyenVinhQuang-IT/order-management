@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAtomValue } from "jotai";
 import { api } from "../api";
+import { CopyColumnBar, useColumnCopy } from "../copyColumn";
 import {
   employeesAtom,
   getEmployee,
@@ -28,6 +29,12 @@ import {
 import { formatCount, formatSeconds } from "../settings";
 import { useDebouncedFilters } from "../useOrderList";
 
+const TYPE_COPY_COLUMNS = [
+  { id: "type", label: "Công đoạn" },
+  { id: "count", label: "Đơn" },
+  { id: "seconds", label: "Số giây" },
+];
+
 function MetricCard({ label, value }) {
   return (
     <article className="rounded-[18px] border border-hairline bg-canvas p-6">
@@ -42,6 +49,13 @@ function MetricCard({ label, value }) {
 }
 
 const typeTableCols = "desk:grid-cols-[minmax(0,1.4fr)_minmax(0,0.6fr)_minmax(0,0.7fr)]";
+
+function typeColumnValue(item, columnId) {
+  if (columnId === "type") return item.label || "";
+  if (columnId === "count") return item.count == null ? "" : String(item.count);
+  if (columnId === "seconds") return item.seconds == null ? "" : String(item.seconds);
+  return "";
+}
 
 export default function Stats() {
   const isManager = useAtomValue(isManagerAtom);
@@ -82,6 +96,15 @@ export default function Stats() {
     : stats.total === 0 && filters.hasActiveFilters
       ? "Không có đơn khớp với bộ lọc."
       : "Chưa có đơn hàng.";
+  const typeRows = secondsByType.items.filter((item) => item.count > 0);
+  const getTypeKey = useCallback((item) => item.id, []);
+  const typeCopy = useColumnCopy({
+    tableId: "stats-type",
+    rows: typeRows,
+    getRowKey: getTypeKey,
+    columns: TYPE_COPY_COLUMNS,
+    getValue: typeColumnValue,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -178,34 +201,73 @@ export default function Stats() {
               {emptyMessage}
             </p>
           ) : (
-            <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0">
+            <ul className="m-0 list-none overflow-hidden rounded-[18px] border border-hairline bg-canvas p-0 select-none">
               <li
                 className={`hidden border-b border-hairline px-6 py-3 text-sm font-semibold leading-[1.29] tracking-[-0.224px] text-ink-muted-48 desk:grid ${typeTableCols} desk:gap-4`}
               >
-                <span>Công đoạn</span>
-                <span>Đơn</span>
-                <span>Số giây</span>
+                {TYPE_COPY_COLUMNS.map((column) => (
+                  <button
+                    key={column.id}
+                    className={typeCopy.headerClass(column.id)}
+                    type="button"
+                    title={`Chọn cột ${column.label}`}
+                    aria-pressed={
+                      typeCopy.selectedColumn === column.id &&
+                      typeCopy.selectedKeys.size > 0
+                    }
+                    onClick={() => typeCopy.handleSelectColumn(column)}
+                  >
+                    {column.label}
+                  </button>
+                ))}
               </li>
-              {secondsByType.items
-                .filter((item) => item.count > 0)
-                .map((item) => (
+              {typeRows.map((item, index) => {
+                const key = item.id;
+                return (
                 <li
-                  key={item.id}
-                  className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${typeTableCols} desk:items-center desk:gap-4 border-b border-hairline`}
+                  key={key}
+                  data-copy-table="stats-type"
+                  data-copy-index={index}
+                  onPointerDown={(event) =>
+                    typeCopy.handleRowPointerDown(event, index, key)
+                  }
+                  className={`grid cursor-cell grid-cols-1 gap-y-2 px-6 py-[17px] ${typeTableCols} desk:items-center desk:gap-4 border-b border-hairline`}
                 >
-                  <span className="text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink">
+                  <span
+                    data-column="type"
+                    className={typeCopy.cellClass(
+                      key,
+                      "type",
+                      "text-[17px] font-normal leading-[1.44] tracking-[-0.374px] text-ink",
+                    )}
+                  >
                     {item.label}
                   </span>
-                  <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                  <span
+                    data-column="count"
+                    className={typeCopy.cellClass(
+                      key,
+                      "count",
+                      "text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink",
+                    )}
+                  >
                     <span className="desk:hidden">Đơn </span>
                     {formatCount(item.count)}
                   </span>
-                  <span className="text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink">
+                  <span
+                    data-column="seconds"
+                    className={typeCopy.cellClass(
+                      key,
+                      "seconds",
+                      "text-sm font-normal leading-[1.43] tracking-[-0.224px] text-ink-muted-80 tabular-nums desk:text-[17px] desk:leading-[1.44] desk:tracking-[-0.374px] desk:text-ink",
+                    )}
+                  >
                     <span className="desk:hidden">Số giây </span>
                     {formatSeconds(item.seconds)}
                   </span>
                 </li>
-              ))}
+                );
+              })}
               <li
                 className={`grid grid-cols-1 gap-y-2 px-6 py-[17px] ${typeTableCols} desk:items-center desk:gap-4`}
               >
@@ -245,6 +307,14 @@ export default function Stats() {
           </section>
         ) : null}
       </main>
+      {typeCopy.showBar ? (
+        <CopyColumnBar
+          count={typeCopy.selectedKeys.size}
+          label={typeCopy.selectedLabel}
+          onCopy={() => typeCopy.handleCopyColumn()}
+          onClear={typeCopy.handleClearSelection}
+        />
+      ) : null}
     </div>
   );
 }
