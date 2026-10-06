@@ -8,11 +8,11 @@ from datetime import datetime, timezone
 
 from flask import current_app, has_app_context
 
-from .constants import PROCESS_BY_SLUG
-from .db import batched, get_db, transaction
+from .constants import PD_PREFIX, PROCESS_BY_SLUG
+from .db import batched, get_db, placeholders, transaction
 
 DEFAULT_CAPACITY_URL = "http://192.168.101.65:8088/data/xep-ban-capacity.json"
-DEFAULT_INTERVAL_SECONDS = 600
+DEFAULT_INTERVAL_SECONDS = 7200
 DEFAULT_TTL_SECONDS = DEFAULT_INTERVAL_SECONDS
 DEFAULT_TIMEOUT_SECONDS = 90
 INSERT_BATCH = 500
@@ -198,20 +198,46 @@ def _iter_insert_rows(payload, pbb_map, pba_map, process_ids):
         yield (code, emp_id, process_id, "", created_at)
 
 
-def _insert_rows(rows):
-    inserted = 0
+def _replace_erp_orders(process_ids, rows):
+    lam_id = process_ids.get("PBB")
+    kiem_id = process_ids.get("PBA")
+    target_ids = [item for item in (lam_id, kiem_id) if item is not None]
+    if not target_ids:
+        return 0
+    from .services import _strip_order_seconds
+
     with transaction() as db:
+        old = db.execute(
+            f"""
+            SELECT id, process_id FROM oders
+            WHERE process_id IN ({placeholders(len(target_ids))})
+              AND ifnull(co, '') NOT LIKE ?
+            """,
+            (*target_ids, f"{PD_PREFIX}%"),
+        ).fetchall()
+        old_ids = [row["id"] for row in old]
+        by_process = {}
+        for row in old:
+            by_process.setdefault(row["process_id"], []).append(row["id"])
+        for chunk in batched(old_ids):
+            db.execute(
+                f"DELETE FROM oders WHERE id IN ({placeholders(len(chunk))})",
+                chunk,
+            )
+        for process_id, order_ids in by_process.items():
+            _strip_order_seconds(db, process_id, order_ids)
+        inserted = 0
         for chunk in batched(rows, INSERT_BATCH):
             before = db.total_changes
             db.executemany(
                 """
-                INSERT OR IGNORE INTO oders (co, emp_id, process_id, note, created_at)
+                INSERT INTO oders (co, emp_id, process_id, note, created_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 chunk,
             )
             inserted += db.total_changes - before
-    return inserted
+        return inserted
 
 
 def _should_fetch():
@@ -246,9 +272,10 @@ def ensure_capacity_synced(force=False):
             state["fetched_at"] = now
             return
         updated_at = str(payload.get("updatedAt") or payload.get("updated_at") or "")
-        if updated_at and updated_at == state["updated_at"] and state["fetched_at"]:
+        raw_rows = payload.get("rows") if isinstance(payload, dict) else payload
+        if not isinstance(raw_rows, list) or not raw_rows:
+            state["error"] = "ERP không có dữ liệu làm đơn / kiểm đơn."
             state["fetched_at"] = now
-            state["error"] = ""
             return
         db = get_db()
         pbb_map, pba_map = _employee_maps(db)
@@ -258,8 +285,12 @@ def ensure_capacity_synced(force=False):
             state["error"] = ""
             return
         rows = list(_iter_insert_rows(payload, pbb_map, pba_map, process_ids))
-        if rows:
-            _insert_rows(rows)
+        if not rows:
+            state["fetched_at"] = now
+            state["updated_at"] = updated_at
+            state["error"] = ""
+            return
+        _replace_erp_orders(process_ids, rows)
         state["fetched_at"] = time.time()
         state["updated_at"] = updated_at
         state["error"] = ""

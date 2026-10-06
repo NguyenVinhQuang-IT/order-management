@@ -91,6 +91,63 @@ def test_erp_orders_appear_in_table_for_matching_employee(tmp_path):
     assert again["total"] == 3
 
 
+def test_erp_replace_drops_old_co_keeps_pd(tmp_path):
+    app = _app(tmp_path, CAPACITY_UPDATED_AT="v1")
+    client = app.test_client()
+    _assign_codes(client, 1, "PBB0099", "PBA0099")
+    headers = _login(client, "1", "employee")
+    listed = client.get("/api/orders", headers=headers)
+    assert listed.get_json()["total"] == 3
+
+    pd = client.post(
+        "/api/orders",
+        json={"codes": ["PDKEEP"], "type": "lam-don", "kind": "pd"},
+        headers=headers,
+    )
+    assert pd.status_code == 201
+    stale = client.post(
+        "/api/orders",
+        json={"codes": ["CO-STALE"], "type": "lam-don"},
+        headers=headers,
+    )
+    assert stale.status_code == 201
+    other = client.post(
+        "/api/orders",
+        json={"codes": ["LAYOUT1"], "type": "lam-layout"},
+        headers=headers,
+    )
+    assert other.status_code == 201
+
+    from app.capacity import ensure_capacity_synced, reset_capacity_cache
+
+    app.config["CAPACITY_UPDATED_AT"] = "v2"
+    app.config["CAPACITY_ROWS"] = [
+        {
+            "orderNo": "CO-NEW",
+            "scanEmployeeCode": "PBB0099",
+            "employeeCompletionTime": "2026-10-05 08:00:00",
+        },
+        {
+            "orderNo": "CO26092800002",
+            "scanEmployeeCode": "PBA0099",
+            "employeeCompletionTime": "2026-09-28 14:59:39",
+        },
+    ]
+    with app.app_context():
+        reset_capacity_cache()
+        ensure_capacity_synced(force=True)
+
+    items = client.get("/api/orders", headers=headers).get_json()["items"]
+    keys = {(item["code"], item["type"], item["kind"]) for item in items}
+    assert ("CO-NEW", "lam-don", "co") in keys
+    assert ("CO26092800002", "kiem-don", "co") in keys
+    assert ("PDKEEP", "lam-don", "pd") in keys
+    assert ("LAYOUT1", "lam-layout", "co") in keys
+    assert ("CO-STALE", "lam-don", "co") not in keys
+    assert ("CO26092800002", "lam-don", "co") not in keys
+    assert ("CO26070400817", "kiem-don", "co") not in keys
+
+
 def test_employee_lists_all_erp_orders(tmp_path):
     app = _app(tmp_path)
     client = app.test_client()

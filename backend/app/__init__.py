@@ -64,9 +64,9 @@ def create_app(test_config=None):
     dist_dir = root.parent / "dist"
     app.json = UTF8JSONProvider(app)
     try:
-        capacity_interval = int(os.environ.get("CAPACITY_INTERVAL") or os.environ.get("CAPACITY_TTL", "600"))
+        capacity_interval = int(os.environ.get("CAPACITY_INTERVAL") or os.environ.get("CAPACITY_TTL", "7200"))
     except ValueError:
-        capacity_interval = 600
+        capacity_interval = 7200
     config = {
         "SECRET_KEY": os.environ.get("SECRET_KEY") or "dev-secret-change-me",
         "DATABASE": os.environ.get("DATABASE", str(root / "data" / "order-management.db")),
