@@ -91,14 +91,15 @@ def test_erp_orders_appear_in_table_for_matching_employee(tmp_path):
     assert again["total"] == 3
 
 
-def test_employee_only_sees_own_erp_orders(tmp_path):
+def test_employee_lists_all_erp_orders(tmp_path):
     app = _app(tmp_path)
     client = app.test_client()
     _assign_codes(client, 1, "PBB0099", "PBA0099")
 
     lan = _login(client, "2", "employee")
-    listed = client.get("/api/orders", headers=lan)
-    assert listed.get_json()["items"] == []
+    listed = client.get("/api/orders", headers=lan).get_json()
+    assert listed["total"] == 3
+    assert {item["employee_id"] for item in listed["items"]} == {"1"}
 
     manager = _login(client, "169", "manager")
     all_items = client.get("/api/orders", headers=manager).get_json()

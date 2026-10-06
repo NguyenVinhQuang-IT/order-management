@@ -475,10 +475,7 @@ def _order_where(user, filters, needles):
     db = get_db()
     sql = ["FROM oders o", "LEFT JOIN emp e ON e.id = o.emp_id", "LEFT JOIN process p ON p.id = o.process_id", "WHERE 1 = 1"]
     params = []
-    if user["role"] != "manager":
-        sql.append("AND o.emp_id = ?")
-        params.append(user["id"])
-    elif filters.get("emp_id") not in (None, ""):
+    if filters.get("emp_id") not in (None, ""):
         sql.append("AND o.emp_id = ?")
         params.append(parse_int(filters["emp_id"]))
 

@@ -127,7 +127,7 @@ def test_pd_order_only_on_allowed_process(client, login):
     assert accepted.get_json()["added"][0]["kind"] == "pd"
 
 
-def test_employee_cannot_see_other_orders(client, login):
+def test_employee_lists_all_orders(client, login):
     quang, _ = login("1", "123456", "employee")
     client.post(
         "/api/orders",
@@ -136,7 +136,10 @@ def test_employee_cannot_see_other_orders(client, login):
     )
     lan, _ = login("2", "123456", "employee")
     listed = client.get("/api/orders", headers=lan)
-    assert listed.get_json()["items"] == []
+    items = listed.get_json()["items"]
+    assert len(items) == 1
+    assert items[0]["code"] == "ONLY-QUANG"
+    assert items[0]["employee_id"] == "1"
 
 
 def test_employee_stats_own_orders_only(client, login):

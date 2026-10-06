@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { isManagerAtom } from "../auth";
+import { isManagerAtom, sameEmployeeId, sessionAtom } from "../auth";
 import DialogOverlay from "../components/DialogOverlay";
 import GlobalNav from "../components/GlobalNav";
 import OrderEntryDialog from "../components/OrderEntryDialog";
@@ -81,6 +81,7 @@ async function writeClipboard(text) {
 
 export default function Dashboard() {
   const notify = useToast();
+  const session = useAtomValue(sessionAtom);
   const isManager = useAtomValue(isManagerAtom);
   const { hasActiveFilters } = useOrderListLoader();
   const orders = useAtomValue(accessibleOrdersAtom);
@@ -183,9 +184,22 @@ export default function Dashboard() {
     notify("Đã bỏ chọn.");
   }
 
+  function ownsRow(order) {
+    return isManager || sameEmployeeId(order.employeeId, session?.employeeId);
+  }
+
   function requestRemoveSelected() {
-    if (selectedKeys.size === 0) return;
-    setPendingDelete({ type: "many", count: selectedKeys.size });
+    const count = isManager
+      ? selectedKeys.size
+      : orders.filter(
+          (order) =>
+            selectedKeys.has(recordKey(order)) && ownsRow(order),
+        ).length;
+    if (count === 0) {
+      notify("Chỉ xóa được đơn của bạn.", "error");
+      return;
+    }
+    setPendingDelete({ type: "many", count });
   }
 
   async function confirmDelete() {
@@ -515,27 +529,35 @@ export default function Dashboard() {
                       )}
                     </span>
                     <div className="col-start-2 row-start-1 flex items-center gap-4 self-center desk:col-start-auto desk:row-start-auto">
-                      <button
-                        className={textLinkClass}
-                        type="button"
-                        aria-haspopup="dialog"
-                        aria-expanded={
-                          Boolean(
-                            editingOrder &&
-                            recordKey(editingOrder) === key,
-                          )
-                        }
-                        onClick={() => handleStartEdit(order)}
-                      >
-                        Sửa
-                      </button>
-                      <button
-                        className={textLinkClass}
-                        type="button"
-                        onClick={() => requestRemove(order)}
-                      >
-                        Xóa
-                      </button>
+                      {ownsRow(order) ? (
+                        <>
+                          <button
+                            className={textLinkClass}
+                            type="button"
+                            aria-haspopup="dialog"
+                            aria-expanded={
+                              Boolean(
+                                editingOrder &&
+                                recordKey(editingOrder) === key,
+                              )
+                            }
+                            onClick={() => handleStartEdit(order)}
+                          >
+                            Sửa
+                          </button>
+                          <button
+                            className={textLinkClass}
+                            type="button"
+                            onClick={() => requestRemove(order)}
+                          >
+                            Xóa
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-sm font-normal leading-[1.29] tracking-[-0.224px] text-ink-muted-48">
+                          —
+                        </span>
+                      )}
                     </div>
                   </li>
                 );
