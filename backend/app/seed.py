@@ -1,6 +1,6 @@
 from .auth import hash_password
 from .constants import PROCESSES, SEED_EMPLOYEES
-from .db import dump_data, get_db, parse_data
+from .db import dump_data, get_db, parse_data, transaction
 
 _PASSWORD_HASHES = {}
 
@@ -19,14 +19,8 @@ def _table_count(db, table):
 
 
 def seed_if_empty():
-    db = get_db()
-    db.execute("BEGIN IMMEDIATE")
-    try:
+    with transaction() as db:
         _seed(db)
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
 
 
 def _seed(db):

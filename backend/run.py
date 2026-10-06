@@ -18,6 +18,7 @@ def _venv_python():
 def _has_runtime():
     try:
         import flask  # noqa: F401
+        import psycopg  # noqa: F401
         import waitress  # noqa: F401
         return True
     except ImportError:
@@ -48,6 +49,10 @@ def _ensure_runtime():
 
 _ensure_runtime()
 
+from app.db import format_db_target, load_env_files  # noqa: E402
+
+load_env_files()
+
 from app import create_app  # noqa: E402
 
 app = create_app()
@@ -77,6 +82,7 @@ def main(argv=None):
     origin = f"http://{args.host}:{args.port}"
     print(f"Python: {sys.executable}")
     print(f"Moi truong: {'development' if args.debug else 'production'}")
+    print(f"PostgreSQL: {format_db_target(app.config['DATABASE'])}")
     print(f"API: {origin}/api/health")
     if (ROOT.parent / "dist" / "index.html").is_file():
         print(f"Web: {origin}")

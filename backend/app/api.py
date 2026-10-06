@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 
 from .auth import create_token, get_current_user, login_required, manager_required
+from .db import get_db
 from .constants import ORDER_PAGE_SIZE
 from .services import (
     add_orders,
@@ -46,7 +47,17 @@ def fail(message, status=400):
 
 @bp.get("/health")
 def health():
-    return jsonify({"ok": True})
+    row = get_db().execute(
+        "SELECT current_database() AS name, version() AS version"
+    ).fetchone()
+    return jsonify(
+        {
+            "ok": True,
+            "database": "postgresql",
+            "name": row["name"] if row else None,
+            "version": row["version"] if row else None,
+        }
+    )
 
 
 @bp.post("/auth/login")

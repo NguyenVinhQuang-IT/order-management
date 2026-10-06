@@ -291,20 +291,18 @@ def get_process_config(process_id, db=None):
 def save_process_config(process_id, payload, db=None):
     db = db or get_db()
     data = dump_data(payload)
-    db.execute("UPDATE config SET data = ? WHERE process_id = ?", (data, process_id))
-    changed = db.execute("SELECT changes()").fetchone()[0]
-    if not changed:
-        cursor = db.execute(
-            "INSERT INTO config (process_id, data) VALUES (?, ?)",
-            (process_id, data),
-        )
-        config_id = cursor.lastrowid
+    updated = db.execute(
+        "UPDATE config SET data = ? WHERE process_id = ? RETURNING id",
+        (data, process_id),
+    ).fetchone()
+    if updated:
+        config_id = updated["id"]
     else:
-        row = db.execute(
-            "SELECT id FROM config WHERE process_id = ? ORDER BY id LIMIT 1",
-            (process_id,),
+        inserted = db.execute(
+            "INSERT INTO config (process_id, data) VALUES (?, ?) RETURNING id",
+            (process_id, data),
         ).fetchone()
-        config_id = row["id"]
+        config_id = inserted["id"]
     invalidate_catalog()
     return config_id
 

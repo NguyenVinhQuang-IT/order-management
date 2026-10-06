@@ -9,25 +9,11 @@ def test_employee_roster_codes_unique():
     assert len(pbas) == len(set(pbas)) == 21
 
 
-def test_legacy_emp_table_gains_pbb_pba(tmp_path):
-    import sqlite3
-
-    from app import create_app
-
-    db_path = tmp_path / "legacy.db"
-    conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE emp (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO emp (id, name) VALUES (1, 'Old')")
-    conn.commit()
-    conn.close()
-
-    app = create_app(
-        {"TESTING": True, "SECRET_KEY": "test-secret", "DATABASE": str(db_path)}
-    )
+def test_emp_table_has_pbb_pba(app):
     with app.app_context():
-        from app.db import get_db
+        from app.db import get_db, table_columns
 
-        cols = {row[1] for row in get_db().execute("PRAGMA table_info(emp)")}
+        cols = table_columns(get_db(), "emp")
         assert "pbb" in cols
         assert "pba" in cols
 
@@ -35,7 +21,10 @@ def test_legacy_emp_table_gains_pbb_pba(tmp_path):
 def test_health(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.get_json()["ok"] is True
+    body = response.get_json()
+    assert body["ok"] is True
+    assert body["database"] == "postgresql"
+    assert body["name"]
 
 
 def test_login_success(client):

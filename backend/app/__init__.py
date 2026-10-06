@@ -7,7 +7,7 @@ from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
 
 from .api import bp as api_bp, register_error_handlers
-from .db import close_db, init_schema
+from .db import close_db, init_schema, load_env_files, resolve_db_settings
 from .seed import seed_if_empty
 
 
@@ -59,6 +59,7 @@ def _register_frontend(app, dist_dir: Path):
 
 
 def create_app(test_config=None):
+    load_env_files()
     app = Flask(__name__)
     root = Path(__file__).resolve().parent.parent
     dist_dir = root.parent / "dist"
@@ -69,7 +70,6 @@ def create_app(test_config=None):
         capacity_interval = 7200
     config = {
         "SECRET_KEY": os.environ.get("SECRET_KEY") or "dev-secret-change-me",
-        "DATABASE": os.environ.get("DATABASE", str(root / "data" / "order-management.db")),
         "DEBUG": False,
         "CAPACITY_URL": os.environ.get(
             "CAPACITY_URL",
@@ -82,9 +82,13 @@ def create_app(test_config=None):
         config.update(test_config)
     else:
         config["SECRET_KEY"] = _resolve_secret_key(root)
+    stored = config.get("DATABASE")
+    if not (isinstance(stored, dict) and stored.get("host") and stored.get("dbname")):
+        config["DATABASE"] = resolve_db_settings(
+            config,
+            testing=bool(config.get("TESTING") or test_config),
+        )
     app.config.from_mapping(config)
-
-    Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
 
     extra_origins = [
         origin.strip()

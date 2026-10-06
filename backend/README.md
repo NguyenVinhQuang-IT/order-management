@@ -1,17 +1,31 @@
 # Flask backend — Order Management
 
-REST API cho ứng dụng quản lý đơn, dùng SQLite với đúng các bảng:
+REST API cho ứng dụng quản lý đơn, dùng **PostgreSQL** với các bảng:
 
 - `emp` — nhân viên
 - `process` — công đoạn
 - `oders` — đơn hàng (giữ nguyên tên bảng)
-- `config` — cấu hình JSON theo công đoạn (thời gian, slug, mật khẩu)
+- `config` — cấu hình JSONB theo công đoạn (thời gian, slug, mật khẩu)
 
-Bảng hệ thống `sqlite_master` / `sqlite_sequence` không dùng trong API.
+## Kết nối PostgreSQL
+
+Sửa `backend/.env` (mẫu: `backend/.env.example`):
+
+```
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=postgres
+DB_NAME=order_management
+DB_NAME_TEST=order_management_test
+DB_SSLMODE=disable
+```
+
+Nếu database chưa có, app sẽ tạo khi đăng nhập PostgreSQL thành công (kết nối database `postgres` rồi `CREATE DATABASE`). Schema được tạo tự động lúc `create_app`.
 
 ## Chạy server (production)
 
-`python backend/run.py` dùng Waitress (WSGI production), `debug` tắt. Không còn Werkzeug development server.
+`python backend/run.py` dùng Waitress (WSGI production), `debug` tắt, PostgreSQL làm database.
 
 Build frontend rồi chạy API + giao diện trên cổng 5000:
 
@@ -24,7 +38,7 @@ Mở `http://127.0.0.1:5000`. API: `http://127.0.0.1:5000/api/health`.
 
 Từ `backend/`: `python .\run.py` hoặc double-click `backend/start.bat`.
 
-Lần đầu sẽ tự tạo `.venv` và cài Flask + Waitress nếu chưa có.
+Lần đầu sẽ tự tạo `.venv` và cài Flask + Waitress + psycopg nếu chưa có. Cần PostgreSQL 16+.
 
 Chạy Vite (hot reload) khi sửa giao diện:
 
@@ -57,7 +71,7 @@ Gửi token ở header: `Authorization: Bearer <token>`
 
 | Method | Path | Mô tả |
 | ------ | ---- | ----- |
-| GET | `/api/health` | Kiểm tra server |
+| GET | `/api/health` | Kiểm tra server (`database: postgresql`) |
 | POST | `/api/auth/login` | Đăng nhập |
 | GET | `/api/auth/me` | User hiện tại |
 | GET/POST | `/api/employees` | Danh sách / tạo NV (tạo: manager) |
@@ -88,7 +102,7 @@ Gửi token ở header: `Authorization: Bearer <token>`
 
 `kind` = `pd` chỉ dùng cho công đoạn `lam-don` và `kiem-don`. Mã PD được lưu trong cột `oders.co` với tiền tố `PD|` để không đụng schema.
 
-Cột `config.data` (JSON) lưu:
+Cột `config.data` (JSONB) lưu:
 
 - `slug` — id công đoạn phía frontend
 - `seconds` — giây mặc định theo công đoạn
@@ -99,7 +113,9 @@ Cột `config.data` (JSON) lưu:
 ## Biến môi trường
 
 - `SECRET_KEY` — ký token (mặc định lưu tại `backend/data/secret_key`)
-- `DATABASE` — đường dẫn file SQLite (mặc định `backend/data/order-management.db`)
+- `DB_HOST` / `DB_PORT` / `DB_USERNAME` / `DB_PASSWORD` / `DB_NAME` — kết nối PostgreSQL
+- `DB_NAME_TEST` — database riêng cho pytest
+- `DB_SSLMODE` — mặc định `disable`
 - `HOST` / `PORT` — địa chỉ Waitress (mặc định `127.0.0.1:5000`)
 - `CORS_ORIGINS` — thêm origin, cách nhau bởi dấu phẩy
 
@@ -107,5 +123,5 @@ Cột `config.data` (JSON) lưu:
 
 ```powershell
 cd backend
-python -m pytest -q
+.\.venv\Scripts\python.exe -m pytest -q
 ```

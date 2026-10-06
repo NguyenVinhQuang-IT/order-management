@@ -1,17 +1,23 @@
 import pytest
 
 from app import create_app
+from app.db import load_env_files, reset_tables
+from app.seed import seed_if_empty
+
+load_env_files()
 
 
 @pytest.fixture
-def app(tmp_path):
+def app():
     application = create_app(
         {
             "TESTING": True,
             "SECRET_KEY": "test-secret",
-            "DATABASE": str(tmp_path / "test.db"),
         }
     )
+    with application.app_context():
+        reset_tables()
+        seed_if_empty()
     yield application
 
 

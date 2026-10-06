@@ -1,4 +1,6 @@
 from app import create_app
+from app.db import reset_tables
+from app.seed import seed_if_empty
 
 ERP_ROWS = [
     {
@@ -29,17 +31,20 @@ ERP_ROWS = [
 ]
 
 
-def _app(tmp_path, **extra):
+def _app(_tmp_path=None, **extra):
     config = {
         "TESTING": True,
         "SECRET_KEY": "test-secret",
-        "DATABASE": str(tmp_path / "capacity.db"),
         "CAPACITY_ROWS": ERP_ROWS,
         "CAPACITY_TTL": 300,
         "CAPACITY_UPDATED_AT": "test-1",
     }
     config.update(extra)
-    return create_app(config)
+    application = create_app(config)
+    with application.app_context():
+        reset_tables()
+        seed_if_empty()
+    return application
 
 
 def _login(client, employee_id="1", role="employee"):
@@ -165,13 +170,10 @@ def test_employee_lists_all_erp_orders(tmp_path):
 
 
 def test_testing_without_capacity_rows_skips_network(tmp_path):
-    app = create_app(
-        {
-            "TESTING": True,
-            "SECRET_KEY": "test-secret",
-            "DATABASE": str(tmp_path / "plain.db"),
-            "CAPACITY_URL": "http://127.0.0.1:9/missing.json",
-        }
+    app = _app(
+        tmp_path,
+        CAPACITY_ROWS=None,
+        CAPACITY_URL="http://127.0.0.1:9/missing.json",
     )
     client = app.test_client()
     headers = _login(client)
@@ -181,13 +183,7 @@ def test_testing_without_capacity_rows_skips_network(tmp_path):
 
 
 def test_scheduler_skipped_in_testing(tmp_path):
-    app = create_app(
-        {
-            "TESTING": True,
-            "SECRET_KEY": "test-secret",
-            "DATABASE": str(tmp_path / "plain.db"),
-        }
-    )
+    app = _app(tmp_path)
     assert "om_capacity_scheduler" not in app.extensions
 
 
@@ -198,7 +194,6 @@ def test_scheduler_runs_in_background(tmp_path):
         {
             "TESTING": False,
             "SECRET_KEY": "test-secret",
-            "DATABASE": str(tmp_path / "sched.db"),
             "CAPACITY_ROWS": ERP_ROWS,
             "CAPACITY_INTERVAL": 3600,
             "CAPACITY_UPDATED_AT": "sched-1",
