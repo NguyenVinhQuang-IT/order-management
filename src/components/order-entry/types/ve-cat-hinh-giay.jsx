@@ -114,8 +114,19 @@ export default function VeCatHinhGiayFields() {
     onClose();
   });
 
-  return <>
-    <CodeInputField label="Tên giày" placeholder="Nhập tên giày" />
-    <NoteField />
-  </>
+  return (
+    <>
+      {isEdit ? (
+        <CodeInputField label="Hình thể giày" placeholder="Nhập hình thể giày" />
+      ) : (
+        <CodeListField
+          label="Hình thể giày"
+          placeholder={"Hình thể 01\nHình thể 02\nHình thể 03"}
+          helpEmpty={`Dán hình thể giày, mỗi dòng một đơn. Tối đa ${MAX_ORDERS_PER_ENTRY} mã một lần.`}
+        />
+      )}
+      {isEdit && isManager ? <SecondsField /> : null}
+      <NoteField />
+    </>
+  );
 }
