@@ -211,7 +211,7 @@ def _replace_erp_orders(process_ids, rows):
             f"""
             SELECT id, process_id FROM oders
             WHERE process_id IN ({placeholders(len(target_ids))})
-              AND ifnull(co, '') NOT LIKE ?
+              AND COALESCE(co, '') NOT LIKE ?
             """,
             (*target_ids, f"{PD_PREFIX}%"),
         ).fetchall()

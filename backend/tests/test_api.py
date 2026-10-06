@@ -369,6 +369,19 @@ def test_search_reports_missing_codes(client, login):
     assert {item["code"] for item in folded.get_json()["items"]} == {"ALPHA", "BETA"}
 
 
+def test_search_code_finds_exact_co(client, login):
+    headers, _ = login()
+    client.post(
+        "/api/orders",
+        json={"codes": ["CO26042200767", "CO26100500947"], "type": "lam-don"},
+        headers=headers,
+    )
+    found = client.get("/api/orders", query_string={"q": "CO26042200767"}, headers=headers)
+    body = found.get_json()
+    assert [item["code"] for item in body["items"]] == ["CO26042200767"]
+    assert body["total"] == 1
+
+
 def test_search_filters_in_sql(client, login):
     headers, _ = login()
     client.post(

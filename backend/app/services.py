@@ -142,18 +142,27 @@ def parse_search_needles(raw):
 
 
 def _needle_clause(needle, db):
-    parts = [
-        "instr(om_fold(o.co), ?) > 0",
-        "instr(om_fold(ifnull(o.note, '')), ?) > 0",
-        "instr(om_fold(ifnull(e.name, '')), ?) > 0",
-        "instr(om_fold(ifnull(p.name, '')), ?) > 0",
-        "instr(om_fold(CAST(o.emp_id AS TEXT)), ?) > 0",
-    ]
-    params = [needle] * 5
     compact = compact_text(needle)
-    if len(compact) >= 3:
-        parts.append("instr(om_compact(o.co), ?) > 0")
-        params.append(compact)
+    upper = needle.upper()
+    code_like = bool(re.search(r"\d", needle)) and len(compact) >= 3
+    parts = [
+        "o.co = ?",
+        "o.co = ?",
+        "instr(replace(lower(COALESCE(o.co, '')), '|', ''), ?) > 0",
+        "CAST(o.emp_id AS TEXT) = ?",
+        "instr(CAST(o.emp_id AS TEXT), ?) > 0",
+    ]
+    params = [upper, f"{PD_PREFIX}{upper}", compact or needle, needle, needle]
+    if not code_like:
+        parts.extend(
+            [
+                "instr(om_fold(COALESCE(o.note, '')), ?) > 0",
+                "instr(om_fold(COALESCE(e.name, '')), ?) > 0",
+                "instr(om_fold(COALESCE(p.name, '')), ?) > 0",
+                "instr(om_fold(COALESCE(o.co, '')), ?) > 0",
+            ]
+        )
+        params.extend([needle, needle, needle, needle])
     slug_ids = [
         item["id"]
         for item in process_catalog(db)["items"]

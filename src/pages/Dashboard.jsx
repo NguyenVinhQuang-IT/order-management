@@ -439,9 +439,9 @@ export default function Dashboard() {
             <OrderFilters />
           </div>
 
-          {ordersLoading && orders.length === 0 ? (
+          {ordersLoading ? (
             <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">
-              Đang tải.
+              {hasActiveFilters ? "Đang tìm." : "Đang tải."}
             </p>
           ) : orders.length === 0 ? (
             <p className="m-0 text-[17px] leading-[1.44] tracking-[-0.374px] text-ink-muted-48">

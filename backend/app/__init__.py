@@ -7,7 +7,8 @@ from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
 
 from .api import bp as api_bp, register_error_handlers
-from .db import close_db, init_schema, load_env_files, resolve_db_settings
+from .db import close_db, get_db, init_schema, load_env_files, resolve_db_settings
+from .migrate_sqlite import migrate_sqlite_if_needed
 from .seed import seed_if_empty
 
 
@@ -113,6 +114,9 @@ def create_app(test_config=None):
 
     with app.app_context():
         init_schema()
+        copied = migrate_sqlite_if_needed(get_db(), root)
+        if copied:
+            print(f"Da chep {copied} dong tu SQLite sang PostgreSQL")
         seed_if_empty()
 
     from .capacity import start_capacity_scheduler
